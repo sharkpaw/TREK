@@ -6,8 +6,11 @@ import {
   MAP_CLUSTER_MAX_ZOOM,
   MAP_CLUSTER_MIN_POINTS,
   MAP_CLUSTER_RADIUS,
+  MAP_CLUSTER_SOURCE_MAX_ZOOM,
   MAP_MARKER_MIN_ZOOM,
   placesToClusterGeoJSON,
+  shouldShowMapClusters,
+  shouldShowMapMarkers,
 } from './mapClusterConfig'
 import { renderToStaticMarkup } from 'react-dom/server'
 import mapboxgl from 'mapbox-gl'
@@ -361,7 +364,7 @@ export function MapViewGL({
           type: 'geojson',
           data: { type: 'FeatureCollection', features: [] },
           cluster: true,
-          clusterMaxZoom: MAP_CLUSTER_MAX_ZOOM - 1,
+          clusterMaxZoom: MAP_CLUSTER_SOURCE_MAX_ZOOM,
           clusterRadius: MAP_CLUSTER_RADIUS,
           clusterMinPoints: MAP_CLUSTER_MIN_POINTS,
         })
@@ -408,8 +411,10 @@ export function MapViewGL({
       if (zoomRaf) cancelAnimationFrame(zoomRaf)
       zoomRaf = requestAnimationFrame(() => setZoomRev(z => z + 1))
     }
-    map.on('zoom', bumpZoomRev)
-    map.on('zoomend', bumpZoomRev)
+    const onZoomChange = () => bumpZoomRev()
+    map.on('zoom', onZoomChange)
+    map.on('zoomend', onZoomChange)
+    map.on('moveend', onZoomChange)
     // In the mapbox-gl map the right mouse button is reserved for the
     // built-in rotate/pitch gesture, so we bind the "add place" action
     // to the middle mouse button (button === 1) instead.
@@ -470,6 +475,10 @@ export function MapViewGL({
     map.on('render', syncMarkerAltitudes)
 
     return () => {
+      map.off('zoom', onZoomChange)
+      map.off('zoomend', onZoomChange)
+      map.off('moveend', onZoomChange)
+      map.off('render', syncMarkerAltitudes)
       canvas.removeEventListener('mousedown', onAuxDown)
       canvas.removeEventListener('auxclick', onAuxClick)
       markersRef.current.forEach(m => m.remove())
@@ -544,7 +553,7 @@ export function MapViewGL({
     if (!map || !mapReady) return
     const src = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource | undefined
     src?.setData(placesToClusterGeoJSON(places))
-    const showClusters = map.getZoom() < MAP_MARKER_MIN_ZOOM
+    const showClusters = shouldShowMapClusters(map.getZoom())
     const vis = showClusters ? 'visible' : 'none'
     if (map.getLayer('trip-clusters')) map.setLayoutProperty('trip-clusters', 'visibility', vis)
     if (map.getLayer('trip-cluster-count')) map.setLayoutProperty('trip-cluster-count', 'visibility', vis)
@@ -609,12 +618,13 @@ export function MapViewGL({
           const c = (leaf.geometry as GeoJSON.Point).coordinates as [number, number]
           bounds.extend(c)
         }
-        const targetZoom = clusterPlaces.length <= 12
-          ? MAP_CLUSTER_MAX_ZOOM + 1
-          : Math.max(map.getZoom() + 1.5, MAP_MARKER_MIN_ZOOM)
+        const targetZoom = Math.max(
+          MAP_MARKER_MIN_ZOOM + 1,
+          clusterPlaces.length <= 8 ? MAP_MARKER_MIN_ZOOM + 2 : map.getZoom() + 2,
+        )
         map.flyTo({
           center: bounds.getCenter(),
-          zoom: Math.min(targetZoom, MAP_CLUSTER_MAX_ZOOM + 1),
+          zoom: targetZoom,
           duration: 450,
         })
       })
@@ -668,7 +678,7 @@ export function MapViewGL({
     const map = mapRef.current
     if (!map) return
 
-    if (map.getZoom() < MAP_MARKER_MIN_ZOOM) {
+    if (!shouldShowMapMarkers(map.getZoom())) {
       markersRef.current.forEach((marker, id) => {
         hoverCleanupRef.current.get(id)?.()
         hoverCleanupRef.current.delete(id)
