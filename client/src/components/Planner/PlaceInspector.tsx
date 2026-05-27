@@ -10,7 +10,9 @@ import { mapsApi } from '../../api/client'
 import { useSettingsStore } from '../../store/settingsStore'
 import { getCategoryIcon } from '../shared/categoryIcons'
 import { useTranslation } from '../../i18n'
-import PlaceTagsEditor, { TagChips } from '../shared/PlaceTagsEditor'
+import { AddChipButton, TagChips } from '../shared/PlaceTagsEditor'
+import TagPickerPopover from '../shared/TagPickerPopover'
+import CategoryPickerPopover from '../shared/CategoryPickerPopover'
 import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap, Tag } from '../../types'
 import { splitReservationDateTime } from '../../utils/formatters'
 
@@ -151,13 +153,23 @@ export default function PlaceInspector({
   const googleDetails = usePlaceDetails(place?.google_place_id, place?.osm_id, language)
   const placeTags = place?.tags ?? []
   const [tagIds, setTagIds] = useState<number[]>(() => placeTags.map(t => t.id))
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false)
+  const tagAddRef = useRef<HTMLButtonElement>(null)
+  const categoryAddRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     setTagIds((place?.tags ?? []).map(t => t.id))
   }, [place?.id, place?.tags])
 
   const saveTags = (ids: number[]) => {
+    if (!place) return
     setTagIds(ids)
     onUpdatePlace?.(place.id, { tags: ids } as Partial<Place>)
+  }
+
+  const saveCategory = (categoryId: number | null) => {
+    if (!place) return
+    onUpdatePlace?.(place.id, { category_id: categoryId } as Partial<Place>)
   }
 
   const startNameEdit = () => {
@@ -310,9 +322,26 @@ export default function PlaceInspector({
                   </span>
                 )
               })()}
-              {placeTags.length > 0 && (
-                <span className="hidden sm:inline-flex" style={{ marginLeft: 2 }}>
-                  <TagChips tags={placeTags} />
+              {onUpdatePlace && (
+                <AddChipButton
+                  ref={categoryAddRef}
+                  onClick={() => setCategoryPickerOpen(true)}
+                  title={t('places.formCategory')}
+                />
+              )}
+              {(placeTags.length > 0 || onUpdatePlace) && (
+                <span style={{ marginLeft: 2, display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                  <TagChips
+                    tags={placeTags}
+                    onRemove={onUpdatePlace ? id => saveTags(tagIds.filter(x => x !== id)) : undefined}
+                  />
+                  {onUpdatePlace && (
+                    <AddChipButton
+                      ref={tagAddRef}
+                      onClick={() => setTagPickerOpen(true)}
+                      title={t('places.formTags')}
+                    />
+                  )}
                 </span>
               )}
             </div>
@@ -346,20 +375,6 @@ export default function PlaceInspector({
 
         {/* Content — scrollable */}
         <div style={{ overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-          {onUpdatePlace && (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {t('places.formTags')}
-              </div>
-              <PlaceTagsEditor
-                allTags={allTags}
-                selectedIds={tagIds}
-                onChange={saveTags}
-                compact
-              />
-            </div>
-          )}
 
           {/* Info-Chips — hidden on mobile, shown on desktop */}
           <div className="hidden sm:flex" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -691,6 +706,28 @@ export default function PlaceInspector({
         </div>
       </div>
     </div>
+    {tagPickerOpen && (
+      <TagPickerPopover
+        tags={allTags}
+        selectedIds={new Set(tagIds.map(String))}
+        onToggle={id => {
+          const num = Number(id)
+          const next = tagIds.includes(num) ? tagIds.filter(x => x !== num) : [...tagIds, num]
+          saveTags(next)
+        }}
+        onClose={() => setTagPickerOpen(false)}
+        anchorEl={tagAddRef.current}
+      />
+    )}
+    {categoryPickerOpen && (
+      <CategoryPickerPopover
+        categories={categories}
+        selectedId={place.category_id}
+        onSelect={saveCategory}
+        onClose={() => setCategoryPickerOpen(false)}
+        anchorEl={categoryAddRef.current}
+      />
+    )}
     </>
   )
 }

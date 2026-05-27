@@ -4,9 +4,9 @@ import type { Place } from '../../types'
  * Individual markers appear at zoom >= this level.
  * Higher value = stay grouped longer while zooming in (fewer tiny clusters).
  */
-export const MAP_CLUSTER_MAX_ZOOM = 14
+export const MAP_CLUSTER_MAX_ZOOM = 15
 /** Larger radius merges more points per cluster (Leaflet `maxClusterRadius`). */
-export const MAP_CLUSTER_RADIUS = 55
+export const MAP_CLUSTER_RADIUS = 62
 
 export function placesToClusterGeoJSON(
   places: Place[],

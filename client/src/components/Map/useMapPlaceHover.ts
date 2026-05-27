@@ -4,7 +4,7 @@ import { getCached } from '../../services/photoService'
 import { parsePlacePhotoProxyUrl, ensureFullPlacePhotoUrl } from '../../utils/placePhotoUrls'
 import type { Place } from '../../types'
 
-export const MAP_HOVER_DELAY_MS = 1300
+export const MAP_HOVER_DELAY_MS = 700
 
 export type MapHoverPlace = Place & {
   category_name?: string | null
@@ -53,6 +53,7 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
   const clusterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingHoverRef = useRef<{ place: MapHoverPlace; x: number; y: number } | null>(null)
   const pendingClusterRef = useRef<{ places: MapHoverPlace[]; x: number; y: number } | null>(null)
+  const clusterLockedRef = useRef(false)
   const photoUrlsRef = useRef(photoUrls)
   photoUrlsRef.current = photoUrls
 
@@ -78,6 +79,7 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
 
   const clearClusterHover = useCallback(() => {
     pendingClusterRef.current = null
+    clusterLockedRef.current = false
     clearClusterTimer()
     setClusterHover(null)
   }, [clearClusterTimer])
@@ -110,17 +112,14 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
   const scheduleClusterHover = useCallback((places: MapHoverPlace[], x: number, y: number) => {
     if (places.length === 0) return
     clearHoverPreview()
+    if (clusterLockedRef.current) return
     pendingClusterRef.current = { places, x, y }
-    setClusterHover(prev => (
-      prev && prev.places.length === places.length && prev.places[0]?.id === places[0]?.id
-        ? { ...prev, x, y }
-        : prev
-    ))
     clearClusterTimer()
     clusterTimerRef.current = setTimeout(() => {
       clusterTimerRef.current = null
       const p = pendingClusterRef.current
       if (!p) return
+      clusterLockedRef.current = true
       setClusterHover({ places: p.places, x: p.x, y: p.y })
     }, MAP_HOVER_DELAY_MS)
   }, [clearClusterTimer, clearHoverPreview])
