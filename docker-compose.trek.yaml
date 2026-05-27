@@ -56,6 +56,9 @@ services:
       - SETGID
     tmpfs:
       - '/tmp:noexec,nosuid,size=64m'
+    # Traefik birden fazla Docker ağında IP görürse yanlış ağa gidebilir; Coolify bunu sık yapar.
+    labels:
+      - traefik.docker.network=coolify
     networks:
       - coolify
 
