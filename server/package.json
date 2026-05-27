@@ -6,6 +6,7 @@
     "start": "node --require tsconfig-paths/register dist/index.js",
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
+    "build:airports": "node scripts/build-airports.mjs",
     "start:prod": "node --require tsconfig-paths/register dist/index.js",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",

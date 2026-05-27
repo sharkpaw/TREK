@@ -48,6 +48,7 @@ RUN apk add --no-cache tzdata dumb-init su-exec python3 make g++ && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=server-builder /app/server/dist ./server/dist
+COPY --from=server-builder /app/server/assets ./server/assets
 # tsconfig-paths/register reads this at runtime to resolve MCP SDK paths.
 COPY server/tsconfig.json ./server/
 COPY --from=shared-builder /app/shared/dist ./shared/dist
