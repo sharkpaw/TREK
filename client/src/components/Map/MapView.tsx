@@ -9,7 +9,11 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { mapsApi } from '../../api/client'
 import { getCategoryIcon, CATEGORY_ICON_MAP } from '../shared/categoryIcons'
 import ReservationOverlay from './ReservationOverlay'
+import MapPlaceHoverPreview from './MapPlaceHoverPreview'
+import { useTranslation } from '../../i18n'
 import type { Reservation } from '../../types'
+
+const MAP_HOVER_DELAY_MS = 2000
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
   const IconComponent = (iconName && CATEGORY_ICON_MAP[iconName]) || CATEGORY_ICON_MAP['MapPin']
@@ -356,6 +360,7 @@ export const MapView = memo(function MapView({
   visibleConnectionIds = [] as number[],
   onReservationClick,
 }: any) {
+  const { language } = useTranslation()
   const visibleReservations = useMemo(() => {
     if (!visibleConnectionIds || visibleConnectionIds.length === 0) return []
     const set = new Set(visibleConnectionIds)
@@ -372,25 +377,63 @@ export const MapView = memo(function MapView({
     return { paddingTopLeft: [left, top], paddingBottomRight: [right, bottom] }
   }, [leftWidth, rightWidth, hasInspector, hasDayDetail])
 
-  // Hover state for the single tooltip overlay (replaces per-marker <Tooltip>)
-  const [hoveredPlace, setHoveredPlace] = useState<any>(null)
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
-
-  const handleMarkerHover = useCallback((place: any, x: number, y: number) => {
-    setHoveredPlace(place)
-    setTooltipPos({ x, y })
-  }, [])
-
-  const handleMarkerHoverOut = useCallback(() => {
-    setHoveredPlace(null)
-  }, [])
-
   const handleMarkerClick = useCallback((id: number) => {
     onMarkerClick?.(id)
   }, [onMarkerClick])
 
   // photoUrls: only base64 thumbs for smooth map zoom
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>(getAllThumbs)
+  const [hoverPreview, setHoverPreview] = useState<{
+    place: any
+    x: number
+    y: number
+    photoUrl: string | null
+  } | null>(null)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingHoverRef = useRef<{ place: any; x: number; y: number } | null>(null)
+
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+  }, [])
+
+  const handleMarkerHover = useCallback((place: any, x: number, y: number) => {
+    pendingHoverRef.current = { place, x, y }
+    setHoverPreview(prev => (prev?.place?.id === place.id ? { ...prev, x, y } : prev))
+    clearHoverTimer()
+    hoverTimerRef.current = setTimeout(() => {
+      hoverTimerRef.current = null
+      const p = pendingHoverRef.current
+      if (!p || p.place.id !== place.id) return
+      const pck = p.place.google_place_id || p.place.osm_id || `${p.place.lat},${p.place.lng}`
+      setHoverPreview({
+        place: p.place,
+        x: p.x,
+        y: p.y,
+        photoUrl: (pck && photoUrls[pck]) || p.place.image_url || null,
+      })
+    }, MAP_HOVER_DELAY_MS)
+  }, [clearHoverTimer, photoUrls])
+
+  const handleMarkerHoverOut = useCallback(() => {
+    pendingHoverRef.current = null
+    clearHoverTimer()
+    setHoverPreview(null)
+  }, [clearHoverTimer])
+
+  useEffect(() => () => clearHoverTimer(), [clearHoverTimer])
+
+  useEffect(() => {
+    if (!hoverPreview) return
+    const p = hoverPreview.place
+    const pck = p.google_place_id || p.osm_id || `${p.lat},${p.lng}`
+    const url = (pck && photoUrls[pck]) || p.image_url || null
+    if (url && url !== hoverPreview.photoUrl) {
+      setHoverPreview(prev => (prev ? { ...prev, photoUrl: url } : prev))
+    }
+  }, [photoUrls, hoverPreview])
   const placesPhotosEnabled = useAuthStore(s => s.placesPhotosEnabled)
   // Batch photo state updates through a RAF so N simultaneous photo loads
   // collapse into a single re-render instead of N separate renders.
@@ -497,9 +540,6 @@ export const MapView = memo(function MapView({
     } catch { return [] }
   }), [places])
 
-  const TooltipOverlay = hoveredPlace && tooltipPos && !isTouchDevice
-  const CatIcon = TooltipOverlay ? getCategoryIcon(hoveredPlace.category_icon) : null
-
   const { position: userPosition, mode: trackingMode, error: trackingError, cycleMode: cycleTrackingMode } = useGeolocation()
   // Desktop browsers only get IP-based geolocation (city-level accuracy),
   // so the button would be misleading. Mobile, where real GPS lives, keeps it.
@@ -581,36 +621,14 @@ export const MapView = memo(function MapView({
     />}
     </div>
 
-    {TooltipOverlay && (
-      <div data-testid="tooltip" style={{
-        position: 'fixed',
-        left: tooltipPos.x + 14,
-        top: tooltipPos.y - 10,
-        zIndex: 9999,
-        pointerEvents: 'none',
-        background: 'white',
-        borderRadius: 8,
-        boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
-        padding: '6px 10px',
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif",
-        maxWidth: 220,
-        whiteSpace: 'nowrap',
-      }}>
-        <div style={{ fontWeight: 600, fontSize: 12, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {hoveredPlace.name}
-        </div>
-        {hoveredPlace.category_name && CatIcon && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 1 }}>
-            <CatIcon size={10} style={{ color: hoveredPlace.category_color || '#6b7280', flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: '#6b7280' }}>{hoveredPlace.category_name}</span>
-          </div>
-        )}
-        {hoveredPlace.address && (
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {hoveredPlace.address}
-          </div>
-        )}
-      </div>
+    {hoverPreview && !isTouchDevice && (
+      <MapPlaceHoverPreview
+        place={hoverPreview.place}
+        photoUrl={hoverPreview.photoUrl}
+        x={hoverPreview.x}
+        y={hoverPreview.y}
+        language={language}
+      />
     )}
     </>
   )

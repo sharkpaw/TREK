@@ -10,7 +10,8 @@ import { useContextMenu, ContextMenu } from '../shared/ContextMenu'
 import { placesApi } from '../../api/client'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
-import type { Place, Category, Day, AssignmentsMap } from '../../types'
+import TagMultiSelectDropdown from '../shared/TagMultiSelectDropdown'
+import type { Place, Category, Day, AssignmentsMap, Tag } from '../../types'
 import FileImportModal from './FileImportModal'
 import ConfirmDialog from '../shared/ConfirmDialog'
 import Tooltip from '../shared/Tooltip'
@@ -19,6 +20,7 @@ interface PlacesSidebarProps {
   tripId: number
   places: Place[]
   categories: Category[]
+  tags?: Tag[]
   assignments: AssignmentsMap
   selectedDayId: number | null
   selectedPlaceId: number | null
@@ -32,6 +34,7 @@ interface PlacesSidebarProps {
   days: Day[]
   isMobile: boolean
   onCategoryFilterChange?: (categoryIds: Set<string>) => void
+  onTagFilterChange?: (tagIds: Set<string>) => void
   onPlacesFilterChange?: (filter: string) => void
   pushUndo?: (label: string, undoFn: () => Promise<void> | void) => void
   initialScrollTop?: number
@@ -145,8 +148,8 @@ const MemoPlaceRow = React.memo(function MemoPlaceRow({
 })
 
 const PlacesSidebar = React.memo(function PlacesSidebar({
-  tripId, places, categories, assignments, selectedDayId, selectedPlaceId,
-  onPlaceClick, onAddPlace, onAssignToDay, onEditPlace, onDeletePlace, onBulkDeletePlaces, onBulkDeleteConfirm, days, isMobile, onCategoryFilterChange, onPlacesFilterChange, pushUndo,
+  tripId, places, categories, tags = [], assignments, selectedDayId, selectedPlaceId,
+  onPlaceClick, onAddPlace, onAssignToDay, onEditPlace, onDeletePlace, onBulkDeletePlaces, onBulkDeleteConfirm, days, isMobile, onCategoryFilterChange, onTagFilterChange, onPlacesFilterChange, pushUndo,
   initialScrollTop, onScrollTopChange,
 }: PlacesSidebarProps) {
   const { t } = useTranslation()
@@ -243,6 +246,7 @@ const PlacesSidebar = React.memo(function PlacesSidebar({
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [categoryFilters, setCategoryFiltersLocal] = useState<Set<string>>(new Set())
+  const [tagFilters, setTagFiltersLocal] = useState<Set<string>>(new Set())
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [pendingDeleteIds, setPendingDeleteIds] = useState<number[] | null>(null)
@@ -274,6 +278,14 @@ const PlacesSidebar = React.memo(function PlacesSidebar({
       return next
     })
   }
+  const toggleTagFilter = (tagId: string) => {
+    setTagFiltersLocal(prev => {
+      const next = new Set(prev)
+      if (next.has(tagId)) next.delete(tagId); else next.add(tagId)
+      onTagFilterChange?.(next)
+      return next
+    })
+  }
   const [dayPickerPlace, setDayPickerPlace] = useState(null)
   const [catDropOpen, setCatDropOpen] = useState(false)
   const [mobileShowDays, setMobileShowDays] = useState(false)
@@ -294,10 +306,14 @@ const PlacesSidebar = React.memo(function PlacesSidebar({
         if (!categoryFilters.has('uncategorized')) return false
       } else if (!categoryFilters.has(String(p.category_id))) return false
     }
+    if (tagFilters.size > 0) {
+      const placeTagIds = (p.tags || []).map(t => String(t.id))
+      if (!placeTagIds.some(id => tagFilters.has(id))) return false
+    }
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
         !(p.address || '').toLowerCase().includes(search.toLowerCase())) return false
     return true
-  }), [places, filter, categoryFilters, search, plannedIds])
+  }), [places, filter, categoryFilters, tagFilters, search, plannedIds])
 
   const isAssignedToSelectedDay = (placeId) =>
     selectedDayId && (assignments[String(selectedDayId)] || []).some(a => a.place?.id === placeId)
@@ -585,6 +601,18 @@ const PlacesSidebar = React.memo(function PlacesSidebar({
             </div>
           )
         })()}
+
+        {tags.length > 0 && (
+          <TagMultiSelectDropdown
+            tags={tags}
+            selectedIds={tagFilters}
+            onToggle={toggleTagFilter}
+            onClear={() => {
+              setTagFiltersLocal(new Set())
+              onTagFilterChange?.(new Set())
+            }}
+          />
+        )}
       </div>
 
       {/* Anzahl / Auswahl-Leiste */}

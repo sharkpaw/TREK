@@ -48,13 +48,14 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
         phone: z.string().max(50).optional(),
         price: z.number().nonnegative().optional().describe('Cost of this place/activity (e.g. ticket price, entry fee)'),
         currency: z.string().length(3).optional().describe('ISO 4217 currency code (e.g. "EUR", "USD")'),
+        tags: z.array(z.number().int().positive()).optional().describe('Tag IDs to attach — use list_tags'),
       },
       annotations: TOOL_ANNOTATIONS_NON_IDEMPOTENT,
     },
-    async ({ tripId, name, description, lat, lng, address, category_id, google_place_id, osm_id, notes, website, phone, price, currency }) => {
+    async ({ tripId, name, description, lat, lng, address, category_id, google_place_id, osm_id, notes, website, phone, price, currency, tags }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
-      const place = createPlace(String(tripId), { name, description, lat, lng, address, category_id, google_place_id, osm_id, notes, website, phone, price, currency });
+      const place = createPlace(String(tripId), { name, description, lat, lng, address, category_id, google_place_id, osm_id, notes, website, phone, price, currency, tags });
       safeBroadcast(tripId, 'place:created', { place });
       return ok({ place });
     }
@@ -81,16 +82,17 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
         assignment_notes: z.string().max(500).optional().describe('Notes for this day assignment'),
         price: z.number().nonnegative().optional().describe('Cost of this place/activity (e.g. ticket price, entry fee)'),
         currency: z.string().length(3).optional().describe('ISO 4217 currency code (e.g. "EUR", "USD")'),
+        tags: z.array(z.number().int().positive()).optional().describe('Tag IDs to attach — use list_tags'),
       },
       annotations: TOOL_ANNOTATIONS_NON_IDEMPOTENT,
     },
-    async ({ tripId, dayId, name, description, lat, lng, address, category_id, google_place_id, osm_id, place_notes, website, phone, assignment_notes, price, currency }) => {
+    async ({ tripId, dayId, name, description, lat, lng, address, category_id, google_place_id, osm_id, place_notes, website, phone, assignment_notes, price, currency, tags }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!dayExists(dayId, tripId)) return { content: [{ type: 'text' as const, text: 'Day not found.' }], isError: true };
       try {
         const run = db.transaction(() => {
-          const place = createPlace(String(tripId), { name, description, lat, lng, address, category_id, google_place_id, osm_id, notes: place_notes, website, phone, price, currency });
+          const place = createPlace(String(tripId), { name, description, lat, lng, address, category_id, google_place_id, osm_id, notes: place_notes, website, phone, price, currency, tags });
           const assignment = createAssignment(dayId, place.id, assignment_notes ?? null);
           return { place, assignment };
         });
@@ -128,13 +130,14 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
         transport_mode: z.enum(['walking', 'driving', 'cycling', 'transit', 'flight']).optional(),
         osm_id: z.string().optional().describe('OpenStreetMap ID (e.g. "way:12345")'),
         google_place_id: z.string().optional().describe('Google Place ID (e.g. "ChIJd8BlQ2BZwokRAFUEcm_qrcA")'),
+        tags: z.array(z.number().int().positive()).optional().describe('Replace all tags on this place with these tag IDs — use list_tags'),
       },
       annotations: TOOL_ANNOTATIONS_WRITE,
     },
-    async ({ tripId, placeId, name, description, lat, lng, address, category_id, price, currency, place_time, end_time, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id }) => {
+    async ({ tripId, placeId, name, description, lat, lng, address, category_id, price, currency, place_time, end_time, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id, tags }) => {
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
-      const place = updatePlace(String(tripId), String(placeId), { name, description, lat, lng, address, category_id, price, currency, place_time, end_time, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id });
+      const place = updatePlace(String(tripId), String(placeId), { name, description, lat, lng, address, category_id, price, currency, place_time, end_time, duration_minutes, notes, website, phone, transport_mode, osm_id, google_place_id, tags });
       if (!place) return { content: [{ type: 'text' as const, text: 'Place not found.' }], isError: true };
       safeBroadcast(tripId, 'place:updated', { place });
       return ok({ place });
@@ -169,14 +172,15 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
         tripId: z.number().int().positive(),
         search: z.string().optional(),
         category: z.string().optional(),
-        tag: z.string().optional(),
+        tag: z.string().optional().describe('Filter by a single tag ID'),
+        tags: z.string().optional().describe('Comma-separated tag IDs — places matching any listed tag (OR)'),
         assignment: z.enum(['all', 'unassigned', 'assigned']).optional().default('all').describe('Filter by assignment status: "all" (default), "unassigned" (not on any day), or "assigned" (scheduled on a day)'),
       },
       annotations: TOOL_ANNOTATIONS_READONLY,
     },
-    async ({ tripId, search, category, tag, assignment }) => {
+    async ({ tripId, search, category, tag, tags, assignment }) => {
       if (!canAccessTrip(tripId, userId)) return noAccess();
-      const places = listPlaces(String(tripId), { search, category, tag, assignment });
+      const places = listPlaces(String(tripId), { search, category, tag, tags, assignment });
       return ok({ places });
     }
   );

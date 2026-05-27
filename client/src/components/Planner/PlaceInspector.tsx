@@ -10,7 +10,8 @@ import { mapsApi } from '../../api/client'
 import { useSettingsStore } from '../../store/settingsStore'
 import { getCategoryIcon } from '../shared/categoryIcons'
 import { useTranslation } from '../../i18n'
-import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap } from '../../types'
+import PlaceTagsEditor, { TagChips } from '../shared/PlaceTagsEditor'
+import type { Place, Category, Day, Assignment, Reservation, TripFile, AssignmentsMap, Tag } from '../../types'
 import { splitReservationDateTime } from '../../utils/formatters'
 
 const detailsCache = new Map()
@@ -111,6 +112,7 @@ interface TripMember {
 interface PlaceInspectorProps {
   place: Place | null
   categories: Category[]
+  allTags?: Tag[]
   days: Day[]
   selectedDayId: number | null
   selectedAssignmentId: number | null
@@ -131,7 +133,7 @@ interface PlaceInspectorProps {
 }
 
 export default function PlaceInspector({
-  place, categories, days, selectedDayId, selectedAssignmentId, assignments, reservations = [],
+  place, categories, allTags = [], days, selectedDayId, selectedAssignmentId, assignments, reservations = [],
   onClose, onEdit, onDelete, onAssignToDay, onRemoveAssignment,
   files, onFileUpload, tripMembers = [], onSetParticipants, onUpdatePlace,
   leftWidth = 0, rightWidth = 0,
@@ -147,6 +149,16 @@ export default function PlaceInspector({
   const nameInputRef = useRef(null)
   const fileInputRef = useRef(null)
   const googleDetails = usePlaceDetails(place?.google_place_id, place?.osm_id, language)
+  const placeTags = place?.tags ?? []
+  const [tagIds, setTagIds] = useState<number[]>(() => placeTags.map(t => t.id))
+  useEffect(() => {
+    setTagIds((place?.tags ?? []).map(t => t.id))
+  }, [place?.id, place?.tags])
+
+  const saveTags = (ids: number[]) => {
+    setTagIds(ids)
+    onUpdatePlace?.(place.id, { tags: ids } as Partial<Place>)
+  }
 
   const startNameEdit = () => {
     if (!onUpdatePlace) return
@@ -298,6 +310,11 @@ export default function PlaceInspector({
                   </span>
                 )
               })()}
+              {placeTags.length > 0 && (
+                <span className="hidden sm:inline-flex" style={{ marginLeft: 2 }}>
+                  <TagChips tags={placeTags} />
+                </span>
+              )}
             </div>
             {place.address && (
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 6 }}>
@@ -329,6 +346,20 @@ export default function PlaceInspector({
 
         {/* Content — scrollable */}
         <div style={{ overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+          {onUpdatePlace && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {t('places.formTags')}
+              </div>
+              <PlaceTagsEditor
+                allTags={allTags}
+                selectedIds={tagIds}
+                onChange={saveTags}
+                compact
+              />
+            </div>
+          )}
 
           {/* Info-Chips — hidden on mobile, shown on desktop */}
           <div className="hidden sm:flex" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>

@@ -9,7 +9,8 @@ import { useToast } from '../shared/Toast'
 import { Search, Paperclip, X, AlertTriangle, Loader2 } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import CustomTimePicker from '../shared/CustomTimePicker'
-import type { Place, Category, Assignment } from '../../types'
+import PlaceTagsEditor from '../shared/PlaceTagsEditor'
+import type { Place, Category, Assignment, Tag } from '../../types'
 
 interface PlaceFormData {
   name: string
@@ -93,7 +94,9 @@ export default function PlaceFormModal({
   const { hasMapsKey } = useAuthStore()
   const can = useCanDo()
   const tripObj = useTripStore((s) => s.trip)
+  const allTags = useTripStore((s) => s.tags)
   const canUploadFiles = can('file_upload', tripObj)
+  const [tagIds, setTagIds] = useState<number[]>([])
 
   useEffect(() => {
     if (place) {
@@ -110,6 +113,7 @@ export default function PlaceFormModal({
         transport_mode: place.transport_mode || 'walking',
         website: place.website || '',
       })
+      setTagIds(place.tags?.map((t: Tag) => t.id) ?? [])
     } else if (prefillCoords) {
       setForm({
         ...DEFAULT_FORM,
@@ -120,6 +124,7 @@ export default function PlaceFormModal({
       })
     } else {
       setForm(DEFAULT_FORM)
+      setTagIds([])
     }
     setPendingFiles([])
   }, [place, prefillCoords, isOpen])
@@ -344,6 +349,7 @@ export default function PlaceFormModal({
         lat: form.lat ? parseFloat(form.lat) : null,
         lng: form.lng ? parseFloat(form.lng) : null,
         category_id: form.category_id || null,
+        tags: tagIds,
         _pendingFiles: pendingFiles.length > 0 ? pendingFiles : undefined,
       })
       onClose()
@@ -576,6 +582,15 @@ export default function PlaceFormModal({
               </button>
             </div>
           )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t('places.formTags')}</label>
+          <PlaceTagsEditor
+            allTags={allTags}
+            selectedIds={tagIds}
+            onChange={setTagIds}
+          />
         </div>
 
         {/* Time — only shown when editing, not when creating */}

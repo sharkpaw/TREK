@@ -63,6 +63,11 @@ export interface Place {
   website: string | null
   phone: string | null
   created_at: string
+  tags?: Tag[]
+  category?: { id: number; name: string; color: string | null; icon: string | null } | null
+  category_name?: string | null
+  category_color?: string | null
+  category_icon?: string | null
 }
 
 export interface Assignment {

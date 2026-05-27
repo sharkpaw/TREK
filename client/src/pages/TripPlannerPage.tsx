@@ -180,6 +180,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
   const packingItems = useTripStore(s => s.packingItems)
   const todoItems = useTripStore(s => s.todoItems)
   const categories = useTripStore(s => s.categories)
+  const tags = useTripStore(s => s.tags)
   const reservations = useTripStore(s => s.reservations)
   const budgetItems = useTripStore(s => s.budgetItems)
   const files = useTripStore(s => s.files)
@@ -358,6 +359,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
   useTripWebSocket(tripId)
 
   const [mapCategoryFilter, setMapCategoryFilter] = useState<Set<string>>(new Set())
+  const [mapTagFilter, setMapTagFilter] = useState<Set<string>>(new Set())
   const [mapPlacesFilter, setMapPlacesFilter] = useState<string>('all')
 
   const [expandedDayIds, setExpandedDayIds] = useState<Set<number> | null>(null)
@@ -396,11 +398,28 @@ export default function TripPlannerPage(): React.ReactElement | null {
           if (!mapCategoryFilter.has('uncategorized')) return false
         } else if (!mapCategoryFilter.has(String(p.category_id))) return false
       }
+      if (mapTagFilter.size > 0) {
+        const placeTagIds = (p.tags || []).map(t => String(t.id))
+        if (!placeTagIds.some(id => mapTagFilter.has(id))) return false
+      }
       if (hiddenPlaceIds.has(p.id)) return false
       if (plannedIds && plannedIds.has(p.id)) return false
       return true
     })
-  }, [places, mapCategoryFilter, mapPlacesFilter, assignments, expandedDayIds])
+  }, [places, mapCategoryFilter, mapTagFilter, mapPlacesFilter, assignments, expandedDayIds])
+
+  const mapPlacesForView = useMemo(() => {
+    const catById = new Map(categories.map(c => [c.id, c]))
+    return mapPlaces.map(p => {
+      const c = p.category_id ? catById.get(p.category_id) : null
+      return {
+        ...p,
+        category_name: c?.name ?? p.category?.name ?? null,
+        category_color: c?.color ?? p.category?.color ?? null,
+        category_icon: c?.icon ?? p.category?.icon ?? null,
+      }
+    })
+  }, [mapPlaces, categories])
 
   const { route, routeSegments, routeInfo, setRoute, setRouteInfo, updateRouteForDay } = useRouteCalculation({ assignments } as any, selectedDayId, routeShown, routeProfile)
 
@@ -812,7 +831,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
         {activeTab === 'plan' && (
           <div style={{ position: 'absolute', inset: 0 }}>
             <MapView
-              places={mapPlaces}
+              places={mapPlacesForView}
               dayPlaces={dayPlaces}
               route={route}
               routeSegments={routeSegments}
@@ -958,6 +977,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                     tripId={tripId}
                     places={places}
                     categories={categories}
+                    tags={tags}
                     assignments={assignments}
                     selectedDayId={selectedDayId}
                     selectedPlaceId={selectedPlaceId}
@@ -968,6 +988,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                     onDeletePlace={(placeId) => handleDeletePlace(placeId)}
                     onBulkDeletePlaces={(ids) => setDeletePlaceIds(ids)}
                     onCategoryFilterChange={setMapCategoryFilter}
+                    onTagFilterChange={setMapTagFilter}
                     onPlacesFilterChange={setMapPlacesFilter}
                     pushUndo={pushUndo}
                   />
@@ -1020,6 +1041,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
               <PlaceInspector
                 place={selectedPlace}
                 categories={categories}
+                allTags={tags}
                 days={days}
                 selectedDayId={selectedDayId}
                 selectedAssignmentId={selectedAssignmentId}
@@ -1068,6 +1090,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   <PlaceInspector
                     place={selectedPlace}
                     categories={categories}
+                    allTags={tags}
                     days={days}
                     selectedDayId={selectedDayId}
                     selectedAssignmentId={selectedAssignmentId}
@@ -1126,7 +1149,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
                   <div style={{ flex: 1, overflow: 'auto' }}>
                     {mobileSidebarOpen === 'left'
                       ? <DayPlanSidebar tripId={tripId} trip={trip} days={days} places={places} categories={categories} assignments={assignments} selectedDayId={selectedDayId} selectedPlaceId={selectedPlaceId} selectedAssignmentId={selectedAssignmentId} onSelectDay={(id) => { handleSelectDay(id); setMobileSidebarOpen(null) }} onPlaceClick={(placeId, assignmentId) => { handlePlaceClick(placeId, assignmentId) }} onReorder={handleReorder} onUpdateDayTitle={handleUpdateDayTitle} onAssignToDay={handleAssignToDay} onRouteCalculated={(r) => { if (r) { setRoute(r.coordinates); setRouteInfo({ distance: r.distanceText, duration: r.durationText }) } }} reservations={reservations} visibleConnectionIds={visibleConnections} onToggleConnection={toggleConnection} onAddReservation={(dayId) => { setEditingReservation(null); tripActions.setSelectedDay(dayId); setShowReservationModal(true); setMobileSidebarOpen(null) }} onAddTransport={can('day_edit', trip) ? (dayId) => { setTransportModalDayId(dayId); setEditingTransport(null); setShowTransportModal(true); setMobileSidebarOpen(null) } : undefined} onAddPlace={() => { setEditingPlace(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onDayDetail={(day) => { setShowDayDetail(day); setSelectedPlaceId(null); selectAssignment(null) }} accommodations={tripAccommodations} routeShown={routeShown} routeProfile={routeProfile} onToggleRoute={() => setRouteShown(v => !v)} onSetRouteProfile={setRouteProfile} onNavigateToFiles={() => { setMobileSidebarOpen(null); handleTabChange('dateien') }} onExpandedDaysChange={setExpandedDayIds} pushUndo={pushUndo} canUndo={canUndo} lastActionLabel={lastActionLabel} onUndo={handleUndo} onEditTransport={can('day_edit', trip) ? (reservation) => { setEditingTransport(reservation); setTransportModalDayId(reservation.day_id ?? null); setShowTransportModal(true); setMobileSidebarOpen(null) } : undefined} onEditReservation={can('reservation_edit', trip) ? (r) => { setEditingReservation(r); setShowReservationModal(true); setMobileSidebarOpen(null) } : undefined} initialScrollTop={mobilePlanScrollTopRef.current} onScrollTopChange={(top) => { mobilePlanScrollTopRef.current = top }} />
-                      : <PlacesSidebar tripId={tripId} places={places} categories={categories} assignments={assignments} selectedDayId={selectedDayId} selectedPlaceId={selectedPlaceId} onPlaceClick={(placeId) => { handlePlaceClick(placeId); setMobileSidebarOpen(null) }} onAddPlace={() => { setEditingPlace(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onAssignToDay={handleAssignToDay} onEditPlace={(place) => { setEditingPlace(place); setEditingAssignmentId(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onDeletePlace={(placeId) => handleDeletePlace(placeId)} onBulkDeletePlaces={(ids) => setDeletePlaceIds(ids)} onBulkDeleteConfirm={(ids) => confirmDeletePlaces(ids)} days={days} isMobile onCategoryFilterChange={setMapCategoryFilter} onPlacesFilterChange={setMapPlacesFilter} pushUndo={pushUndo} initialScrollTop={mobilePlacesScrollTopRef.current} onScrollTopChange={(top) => { mobilePlacesScrollTopRef.current = top }} />
+                      : <PlacesSidebar tripId={tripId} places={places} categories={categories} tags={tags} assignments={assignments} selectedDayId={selectedDayId} selectedPlaceId={selectedPlaceId} onPlaceClick={(placeId) => { handlePlaceClick(placeId); setMobileSidebarOpen(null) }} onAddPlace={() => { setEditingPlace(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onAssignToDay={handleAssignToDay} onEditPlace={(place) => { setEditingPlace(place); setEditingAssignmentId(null); setShowPlaceForm(true); setMobileSidebarOpen(null) }} onDeletePlace={(placeId) => handleDeletePlace(placeId)} onBulkDeletePlaces={(ids) => setDeletePlaceIds(ids)} onBulkDeleteConfirm={(ids) => confirmDeletePlaces(ids)} days={days} isMobile onCategoryFilterChange={setMapCategoryFilter} onTagFilterChange={setMapTagFilter} onPlacesFilterChange={setMapPlacesFilter} pushUndo={pushUndo} initialScrollTop={mobilePlacesScrollTopRef.current} onScrollTopChange={(top) => { mobilePlacesScrollTopRef.current = top }} />
                     }
                   </div>
                 </div>

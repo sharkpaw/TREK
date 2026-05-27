@@ -37,7 +37,7 @@ export interface PlaceImportResult {
 
 export function listPlaces(
   tripId: string,
-  filters: { search?: string; category?: string; tag?: string; assignment?: 'all' | 'unassigned' | 'assigned' },
+  filters: { search?: string; category?: string; tag?: string; tags?: string; assignment?: 'all' | 'unassigned' | 'assigned' },
 ) {
   let query = `
     SELECT DISTINCT p.*, c.name as category_name, c.color as category_color, c.icon as category_icon
@@ -58,7 +58,14 @@ export function listPlaces(
     params.push(filters.category);
   }
 
-  if (filters.tag) {
+  if (filters.tags) {
+    const tagIds = filters.tags.split(',').map(s => s.trim()).filter(Boolean);
+    if (tagIds.length > 0) {
+      const clauses = tagIds.map(() => 'p.id IN (SELECT place_id FROM place_tags WHERE tag_id = ?)');
+      query += ` AND (${clauses.join(' OR ')})`;
+      params.push(...tagIds);
+    }
+  } else if (filters.tag) {
     query += ' AND p.id IN (SELECT place_id FROM place_tags WHERE tag_id = ?)';
     params.push(filters.tag);
   }

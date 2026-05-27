@@ -35,7 +35,7 @@ export default function PlacePhotoLightbox({ src, alt, caption, onClose }: Place
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 2000,
+        zIndex: 100010,
         background: 'rgba(0, 0, 0, 0.78)',
         backdropFilter: 'blur(24px) saturate(120%)',
         WebkitBackdropFilter: 'blur(24px) saturate(120%)',

@@ -28,12 +28,13 @@ const router = express.Router({ mergeParams: true });
 
 router.get('/', authenticate, requireTripAccess, (req: Request, res: Response) => {
   const { tripId } = req.params;
-  const { search, category, tag } = req.query;
+  const { search, category, tag, tags } = req.query;
 
   const places = listPlaces(tripId, {
     search: search as string | undefined,
     category: category as string | undefined,
     tag: tag as string | undefined,
+    tags: tags as string | undefined,
   });
 
   res.json({ places });
