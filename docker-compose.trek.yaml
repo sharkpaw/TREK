@@ -6,9 +6,9 @@ services:
     container_name: trek
     environment:
       - NODE_ENV=production
-      - JWT_SECRET=$SERVICE_BASE64_64_JWT_SECRET
+      - JWT_SECRET=$SERVICE_BASE64_64_JWTSECRET
       - PORT=3000
-      - ENCRYPTION_KEY=$SERVICE_BASE64_64_ENCRYPTION_KEY # Recommended. Generate with: openssl rand -hex 32. If unset, falls back to data/.jwt_secret (existing installs) or auto-generates a key (fresh installs).
+      - ENCRYPTION_KEY=$SERVICE_BASE64_64_ENCRYPTIONKEY # Recommended. Generate with: openssl rand -hex 32. If unset, falls back to data/.jwt_secret (existing installs) or auto-generates a key (fresh installs).
       - TZ=${TZ:-Europe/Istanbul} # Timezone for logs, reminders and scheduled tasks (e.g. Europe/Berlin)
       - LOG_LEVEL=${LOG_LEVEL:-info} # info = concise user actions; debug = verbose admin-level details
 #      - DEFAULT_LANGUAGE=en # Default language on the login page for users with no saved preference. Browser/OS language is auto-detected first; this is the fallback. Supported: de, en, es, fr, hu, nl, br, cs, pl, ru, zh, zh-TW, it, ar

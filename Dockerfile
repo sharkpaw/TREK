@@ -16,6 +16,7 @@ COPY client/package.json ./client/
 RUN npm ci --workspace=client
 COPY --from=shared-builder /app/shared/dist ./shared/dist
 COPY client/ ./client/
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build --workspace=client
 
 # ── Stage 3: server ──────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ COPY server/package.json ./server/
 RUN npm ci --workspace=server --ignore-scripts
 COPY --from=shared-builder /app/shared/dist ./shared/dist
 COPY server/ ./server/
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build --workspace=server
 
 # ── Stage 4: production runtime ──────────────────────────────────────────────
