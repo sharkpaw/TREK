@@ -3,15 +3,22 @@ import MapPlaceHoverPreview from './MapPlaceHoverPreview'
 import { useMapPlaceHover, type MapHoverPlace } from './useMapPlaceHover'
 import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
 import {
-  MAP_CLUSTER_MAX_ZOOM,
-  MAP_CLUSTER_MIN_POINTS,
-  MAP_CLUSTER_RADIUS,
   MAP_CLUSTER_SOURCE_MAX_ZOOM,
   MAP_MARKER_MIN_ZOOM,
-  placesToClusterGeoJSON,
-  shouldShowMapClusters,
-  shouldShowMapMarkers,
+  clusterRadiusForZoom,
+  spiderfyLngLatPositions,
 } from './mapClusterConfig'
+import {
+  CLUSTER_SOURCE_ID,
+  clusterExpansionZoom,
+  clusterLeaves,
+  ensureClusterSource,
+  fitClusterBounds,
+  rebuildClusterSource,
+  resolveVisiblePlaceMarkers,
+  syncHtmlClusterMarkers,
+  type SpiderfyState,
+} from './mapboxHtmlClusters'
 import { renderToStaticMarkup } from 'react-dom/server'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -254,6 +261,10 @@ export function MapViewGL({
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<Map<number, mapboxgl.Marker>>(new Map())
+  const clusterMarkersRef = useRef<Map<number, mapboxgl.Marker>>(new Map())
+  const clusterRadiusAppliedRef = useRef<number | null>(null)
+  const spiderfyRef = useRef<SpiderfyState | null>(null)
+  const spiderfyZoomRef = useRef<number | null>(null)
   const locationMarkerRef = useRef<LocationMarkerHandle | null>(null)
   const reservationOverlayRef = useRef<ReservationMapboxOverlay | null>(null)
   // Refs so the reservation overlay always sees the latest callback /
@@ -359,39 +370,9 @@ export function MapViewGL({
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         })
       }
-      if (!map.getSource('trip-places-cluster')) {
-        map.addSource('trip-places-cluster', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] },
-          cluster: true,
-          clusterMaxZoom: MAP_CLUSTER_SOURCE_MAX_ZOOM,
-          clusterRadius: MAP_CLUSTER_RADIUS,
-          clusterMinPoints: MAP_CLUSTER_MIN_POINTS,
-        })
-        map.addLayer({
-          id: 'trip-clusters',
-          type: 'circle',
-          source: 'trip-places-cluster',
-          filter: ['has', 'point_count'],
-          paint: {
-            'circle-color': '#6366f1',
-            'circle-radius': ['step', ['get', 'point_count'], 18, 10, 22, 50, 26],
-            'circle-stroke-width': 2.5,
-            'circle-stroke-color': '#ffffff',
-          },
-        })
-        map.addLayer({
-          id: 'trip-cluster-count',
-          type: 'symbol',
-          source: 'trip-places-cluster',
-          filter: ['has', 'point_count'],
-          layout: {
-            'text-field': ['get', 'point_count_abbreviated'],
-            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-            'text-size': 12,
-          },
-          paint: { 'text-color': '#ffffff' },
-        })
+      if (!map.getSource(CLUSTER_SOURCE_ID)) {
+        ensureClusterSource(map, places, clusterRadiusForZoom(map.getZoom()))
+        clusterRadiusAppliedRef.current = clusterRadiusForZoom(map.getZoom())
       }
       // Signal that sources/layers are attached so overlay effects can
       // safely add their own sources. Style rebuilds reset this via the
@@ -403,6 +384,11 @@ export function MapViewGL({
       const t = e.originalEvent.target as HTMLElement
       if (t.closest('.mapboxgl-marker')) return
       if (t.closest('[data-testid="map-cluster-hover-preview"]')) return
+      if (spiderfyRef.current) {
+        spiderfyRef.current = null
+        spiderfyZoomRef.current = null
+        setZoomRev(z => z + 1)
+      }
       clearAllHoverRef.current()
       onClickRefs.current.map?.({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng } })
     })
@@ -483,6 +469,9 @@ export function MapViewGL({
       canvas.removeEventListener('auxclick', onAuxClick)
       markersRef.current.forEach(m => m.remove())
       markersRef.current.clear()
+      clusterMarkersRef.current.forEach(m => m.remove())
+      clusterMarkersRef.current.clear()
+      spiderfyRef.current = null
       if (reservationOverlayRef.current) {
         reservationOverlayRef.current.destroy()
         reservationOverlayRef.current = null
@@ -547,18 +536,6 @@ export function MapViewGL({
     }
   }, [placeIds, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cluster geojson + layer visibility (zoom < MAP_MARKER_MIN_ZOOM → clusters)
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !mapReady) return
-    const src = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource | undefined
-    src?.setData(placesToClusterGeoJSON(places))
-    const showClusters = shouldShowMapClusters(map.getZoom())
-    const vis = showClusters ? 'visible' : 'none'
-    if (map.getLayer('trip-clusters')) map.setLayoutProperty('trip-clusters', 'visibility', vis)
-    if (map.getLayer('trip-cluster-count')) map.setLayoutProperty('trip-cluster-count', 'visibility', vis)
-  }, [places, mapReady, zoomRev])
-
   const scheduleClusterHoverRef = useRef(scheduleClusterHover)
   const showClusterPickerRef = useRef(showClusterPicker)
   const clearClusterHoverRef = useRef(clearClusterHover)
@@ -568,128 +545,142 @@ export function MapViewGL({
   showClusterPickerRef.current = showClusterPicker
   clearClusterHoverRef.current = clearClusterHover
 
+  const leavesToHoverPlaces = (leaves: mapboxgl.MapboxGeoJSONFeature[]): MapHoverPlace[] => {
+    const clusterPlaces: MapHoverPlace[] = []
+    for (const leaf of leaves) {
+      const id = leaf.properties?.placeId as number | undefined
+      if (id == null) continue
+      const place = placesByIdRef.current.get(id)
+      if (place) clusterPlaces.push(place)
+    }
+    return clusterPlaces
+  }
+
+  const handleClusterClick = async (
+    clusterId: number,
+    _count: number,
+    center: [number, number],
+    ev: MouseEvent,
+  ) => {
+    const map = mapRef.current
+    if (!map) return
+    clusterHoverGenRef.current += 1
+    const leaves = await clusterLeaves(map, clusterId)
+    const clusterPlaces = leavesToHoverPlaces(leaves)
+    if (clusterPlaces.length === 0) return
+
+    showClusterPickerRef.current(clusterPlaces, ev.clientX, ev.clientY)
+
+    const expansionZoom = await clusterExpansionZoom(map, clusterId)
+    const currentZoom = map.getZoom()
+    const atClusterMax =
+      expansionZoom == null
+      || expansionZoom <= currentZoom + 0.25
+      || currentZoom >= MAP_CLUSTER_SOURCE_MAX_ZOOM
+
+    if (atClusterMax) {
+      const offsets = spiderfyLngLatPositions(leaves.length, center[0], center[1])
+      const positions = new Map<number, [number, number]>()
+      leaves.forEach((leaf, i) => {
+        const id = leaf.properties?.placeId as number | undefined
+        if (id != null && offsets[i]) positions.set(id, offsets[i])
+      })
+      spiderfyRef.current = { clusterId, positions }
+      spiderfyZoomRef.current = currentZoom
+      setZoomRev(z => z + 1)
+      return
+    }
+
+    spiderfyRef.current = null
+    fitClusterBounds(map, leaves)
+  }
+
+  // Cluster source data, dynamic radius, HTML cluster markers (Leaflet-style)
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReady || isTouchDevice) return
+    if (!map || !mapReady) return
 
-    const loadClusterPlaces = (
-      clusterId: number,
-      cb: (places: MapHoverPlace[]) => void,
-    ) => {
-      const source = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource
-      source.getClusterLeaves(clusterId, 50, 0, (err, leaves) => {
-        if (err || !leaves?.length) return
-        const clusterPlaces: MapHoverPlace[] = []
-        for (const leaf of leaves) {
-          const id = leaf.properties?.placeId as number | undefined
-          if (id == null) continue
-          const place = placesByIdRef.current.get(id)
-          if (place) clusterPlaces.push(place)
-        }
-        if (clusterPlaces.length > 0) cb(clusterPlaces)
+    const radius = clusterRadiusForZoom(map.getZoom())
+    if (clusterRadiusAppliedRef.current !== radius && map.getSource(CLUSTER_SOURCE_ID)) {
+      rebuildClusterSource(map, places, radius)
+      clusterMarkersRef.current.forEach(m => m.remove())
+      clusterMarkersRef.current.clear()
+    } else {
+      ensureClusterSource(map, places, radius)
+    }
+    clusterRadiusAppliedRef.current = radius
+
+    const runSync = () => {
+      if (isTouchDevice) {
+        clusterMarkersRef.current.forEach(m => m.remove())
+        clusterMarkersRef.current.clear()
+        return
+      }
+      syncHtmlClusterMarkers(map, clusterMarkersRef.current, {
+        onClick: handleClusterClick,
+        onMouseEnter: (clusterId, ev) => {
+          map.getCanvas().style.cursor = 'pointer'
+          const gen = ++clusterHoverGenRef.current
+          void clusterLeaves(map, clusterId, 50).then(leaves => {
+            if (gen !== clusterHoverGenRef.current) return
+            const clusterPlaces = leavesToHoverPlaces(leaves)
+            if (clusterPlaces.length === 0) return
+            lastClusterPlacesRef.current = clusterPlaces
+            scheduleClusterHoverRef.current(clusterPlaces, ev.clientX, ev.clientY)
+          })
+        },
+        onMouseMove: ev => {
+          if (lastClusterPlacesRef.current.length === 0) return
+          scheduleClusterHoverRef.current(
+            lastClusterPlacesRef.current,
+            ev.clientX,
+            ev.clientY,
+          )
+        },
+        onMouseLeave: () => {
+          map.getCanvas().style.cursor = ''
+          lastClusterPlacesRef.current = []
+          if (!clusterPinnedRef.current) clearClusterHoverRef.current()
+        },
       })
     }
 
-    const onClusterClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
-      e.preventDefault()
-      e.originalEvent?.stopPropagation()
-      clusterHoverGenRef.current += 1
-      const features = map.queryRenderedFeatures(e.point, { layers: ['trip-clusters', 'trip-cluster-count'] })
-      const clusterId = features[0]?.properties?.cluster_id as number | undefined
-      if (clusterId == null) return
-      const source = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource
-      source.getClusterLeaves(clusterId, 100, 0, (err, leaves) => {
-        if (err || !leaves?.length) return
-        const clusterPlaces: MapHoverPlace[] = []
-        for (const leaf of leaves) {
-          const id = leaf.properties?.placeId as number | undefined
-          if (id == null) continue
-          const place = placesByIdRef.current.get(id)
-          if (place) clusterPlaces.push(place)
-        }
-        if (clusterPlaces.length === 0) return
-        showClusterPickerRef.current(
-          clusterPlaces,
-          e.originalEvent.clientX,
-          e.originalEvent.clientY,
-        )
-        const bounds = new mapboxgl.LngLatBounds()
-        for (const leaf of leaves) {
-          const c = (leaf.geometry as GeoJSON.Point).coordinates as [number, number]
-          bounds.extend(c)
-        }
-        const targetZoom = Math.max(
-          MAP_MARKER_MIN_ZOOM + 1,
-          clusterPlaces.length <= 8 ? MAP_MARKER_MIN_ZOOM + 2 : map.getZoom() + 2,
-        )
-        map.flyTo({
-          center: bounds.getCenter(),
-          zoom: targetZoom,
-          duration: 450,
-        })
-      })
-    }
+    if (map.isStyleLoaded()) runSync()
+    else map.once('idle', runSync)
 
-    const onClusterEnter = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
-      const clusterId = e.features?.[0]?.properties?.cluster_id as number | undefined
-      if (clusterId == null) return
-      map.getCanvas().style.cursor = 'pointer'
-      const gen = ++clusterHoverGenRef.current
-      loadClusterPlaces(clusterId, clusterPlaces => {
-        if (gen !== clusterHoverGenRef.current) return
-        lastClusterPlacesRef.current = clusterPlaces
-        scheduleClusterHoverRef.current(clusterPlaces, e.originalEvent.clientX, e.originalEvent.clientY)
-      })
+    const onZoomEnd = () => {
+      if (
+        spiderfyRef.current
+        && spiderfyZoomRef.current != null
+        && Math.abs(map.getZoom() - spiderfyZoomRef.current) > 0.05
+      ) {
+        spiderfyRef.current = null
+        spiderfyZoomRef.current = null
+        setZoomRev(z => z + 1)
+      }
     }
-
-    const onClusterMove = (e: mapboxgl.MapMouseEvent) => {
-      if (lastClusterPlacesRef.current.length === 0) return
-      scheduleClusterHoverRef.current(
-        lastClusterPlacesRef.current,
-        e.originalEvent.clientX,
-        e.originalEvent.clientY,
-      )
-    }
-
-    const onClusterLeave = () => {
-      map.getCanvas().style.cursor = ''
-      lastClusterPlacesRef.current = []
-      if (!clusterPinnedRef.current) clearClusterHoverRef.current()
-    }
-
-    map.on('click', 'trip-clusters', onClusterClick)
-    map.on('click', 'trip-cluster-count', onClusterClick)
-    map.on('mouseenter', 'trip-clusters', onClusterEnter)
-    map.on('mousemove', 'trip-clusters', onClusterMove)
-    map.on('mouseleave', 'trip-clusters', onClusterLeave)
+    map.on('idle', runSync)
+    map.on('zoomend', onZoomEnd)
 
     return () => {
-      map.off('click', 'trip-clusters', onClusterClick)
-      map.off('click', 'trip-cluster-count', onClusterClick)
-      map.off('mouseenter', 'trip-clusters', onClusterEnter)
-      map.off('mousemove', 'trip-clusters', onClusterMove)
-      map.off('mouseleave', 'trip-clusters', onClusterLeave)
+      map.off('idle', runSync)
+      map.off('zoomend', onZoomEnd)
       map.getCanvas().style.cursor = ''
     }
-  }, [mapReady, isTouchDevice])
+  }, [places, mapReady, zoomRev, isTouchDevice]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reconcile markers when places / selection / order badges change.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    if (!shouldShowMapMarkers(map.getZoom())) {
-      markersRef.current.forEach((marker, id) => {
-        hoverCleanupRef.current.get(id)?.()
-        hoverCleanupRef.current.delete(id)
-        marker.remove()
-        markersRef.current.delete(id)
-        markerMetaRef.current.delete(id)
-      })
-      return
-    }
+    const visibility = resolveVisiblePlaceMarkers(map, places, spiderfyRef.current)
+    const showAll = visibility.mode === 'all'
+    const partialPositions = visibility.mode === 'partial' ? visibility.positions : null
 
-    const ids = new Set(places.map(p => p.id))
+    const ids = showAll
+      ? new Set(places.map(p => p.id))
+      : new Set(partialPositions?.keys() ?? [])
 
     markersRef.current.forEach((marker, id) => {
       if (!ids.has(id)) {
@@ -703,7 +694,9 @@ export function MapViewGL({
 
     places.forEach(place => {
       if (!place.lat || !place.lng) return
+      if (!ids.has(place.id)) return
       const hoverPlace = place as MapHoverPlace
+      const markerLngLat: [number, number] = partialPositions?.get(place.id) ?? [place.lng, place.lat]
       const orderNumbers = dayOrderMap[place.id] ?? null
       const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
       const photoUrl = (pck && photoUrls[pck]) || null
@@ -718,6 +711,7 @@ export function MapViewGL({
 
       if (existing && !structureChanged) {
         markerMetaRef.current.set(place.id, meta)
+        existing.setLngLat(markerLngLat)
         const el = existing.getElement()
         if (el && prev.photoUrl !== photoUrl) {
           applyMarkerPhoto(
@@ -740,7 +734,7 @@ export function MapViewGL({
       attachMarkerInteractions(el, hoverPlace, id => openPlaceFromMapRef.current(id), bindMarkerHover, hoverCleanupRef, () => clearAllHoverRef.current())
       if (existing) existing.remove()
       const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([place.lng, place.lat])
+        .setLngLat(markerLngLat)
         .addTo(map)
       markersRef.current.set(place.id, m)
       markerMetaRef.current.set(place.id, meta)

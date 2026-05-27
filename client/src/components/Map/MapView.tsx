@@ -12,7 +12,7 @@ import ReservationOverlay from './ReservationOverlay'
 import MapPlaceHoverPreview from './MapPlaceHoverPreview'
 import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
 import { useMapPlaceHover } from './useMapPlaceHover'
-import { MAP_CLUSTER_MAX_ZOOM, clusterRadiusForZoom } from './mapClusterConfig'
+import { MAP_CLUSTER_MAX_ZOOM, clusterIconSize, clusterRadiusForZoom } from './mapClusterConfig'
 import { useTranslation } from '../../i18n'
 import type { MarkerClusterGroup as LMarkerClusterGroup } from 'leaflet.markercluster'
 import type { Reservation } from '../../types'
@@ -509,7 +509,7 @@ export const MapView = memo(function MapView({
 
   const clusterIconCreateFunction = useCallback((cluster) => {
     const count = cluster.getChildCount()
-    const size = count < 10 ? 36 : count < 50 ? 42 : 48
+    const size = clusterIconSize(count)
     return L.divIcon({
       html: `<div class="marker-cluster-custom" style="width:${size}px;height:${size}px;"><span>${count}</span></div>`,
       className: 'marker-cluster-wrapper',
