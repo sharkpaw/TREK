@@ -11,7 +11,7 @@ import {
   autocompletePlaces,
 } from '../services/mapsService';
 import { db } from '../db/database';
-import { serveFilePath } from '../services/placePhotoCache';
+import { serveFilePath, serveThumbFilePath, ensureThumbFile } from '../services/placePhotoCache';
 
 const router = express.Router();
 
@@ -121,12 +121,24 @@ router.get('/place-photo/:placeId', authenticate, async (req: Request, res: Resp
   }
 });
 
-// GET /place-photo/:placeId/bytes — serve cached photo bytes from disk
+// GET /place-photo/:placeId/bytes — full cached photo (lightbox)
 router.get('/place-photo/:placeId/bytes', authenticate, (req: Request, res: Response) => {
   const { placeId } = req.params;
   const fp = serveFilePath(placeId);
   if (!fp) return res.status(404).json({ error: 'Photo not cached' });
   res.set('Cache-Control', 'public, max-age=2592000, immutable');
+  res.type('image/jpeg');
+  res.sendFile(fp);
+});
+
+// GET /place-photo/:placeId/thumb — small cached variant (avatars, map markers)
+router.get('/place-photo/:placeId/thumb', authenticate, async (req: Request, res: Response) => {
+  const { placeId } = req.params;
+  let fp = serveThumbFilePath(placeId);
+  if (!fp) fp = await ensureThumbFile(placeId);
+  if (!fp) return res.status(404).json({ error: 'Photo not cached' });
+  res.set('Cache-Control', 'public, max-age=2592000, immutable');
+  res.type('image/jpeg');
   res.sendFile(fp);
 });
 

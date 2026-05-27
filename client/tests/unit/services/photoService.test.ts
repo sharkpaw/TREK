@@ -155,8 +155,8 @@ describe('fetchPhoto — photoUrl present', () => {
     mockPlacePhoto.mockResolvedValue({ photoUrl: 'https://example.com/photo.jpg' });
 
     // Capture a shallow clone at the moment of the call, before the entry is mutated by thumb generation
-    const snapshots: { photoUrl: string | null; thumbDataUrl: string | null }[] = [];
-    const cb = vi.fn((entry: { photoUrl: string | null; thumbDataUrl: string | null }) => {
+    const snapshots: { photoUrl: string | null; thumbUrl: string | null; thumbDataUrl: string | null }[] = [];
+    const cb = vi.fn((entry: { photoUrl: string | null; thumbUrl: string | null; thumbDataUrl: string | null }) => {
       snapshots.push({ ...entry });
     });
 
@@ -164,7 +164,7 @@ describe('fetchPhoto — photoUrl present', () => {
     await flush();
 
     expect(cb).toHaveBeenCalledTimes(1);
-    expect(snapshots[0]).toEqual({ photoUrl: 'https://example.com/photo.jpg', thumbDataUrl: null });
+    expect(snapshots[0]).toEqual({ photoUrl: 'https://example.com/photo.jpg', thumbUrl: null, thumbDataUrl: null });
   });
 
   it('FE-COMP-PHOTO-006: getCached returns the entry after fetch resolves', async () => {
@@ -200,8 +200,8 @@ describe('fetchPhoto — photoUrl null', () => {
     svc.fetchPhoto('k', 'pid', undefined, undefined, undefined, cb);
     await flush();
 
-    expect(cb).toHaveBeenCalledWith({ photoUrl: null, thumbDataUrl: null });
-    expect(svc.getCached('k')).toEqual({ photoUrl: null, thumbDataUrl: null });
+    expect(cb).toHaveBeenCalledWith({ photoUrl: null, thumbUrl: null, thumbDataUrl: null });
+    expect(svc.getCached('k')).toEqual({ photoUrl: null, thumbUrl: null, thumbDataUrl: null });
   });
 });
 
@@ -217,8 +217,8 @@ describe('fetchPhoto — API error', () => {
     svc.fetchPhoto('k', 'pid', undefined, undefined, undefined, cb);
     await flush();
 
-    expect(cb).toHaveBeenCalledWith({ photoUrl: null, thumbDataUrl: null });
-    expect(svc.getCached('k')).toEqual({ photoUrl: null, thumbDataUrl: null });
+    expect(cb).toHaveBeenCalledWith({ photoUrl: null, thumbUrl: null, thumbDataUrl: null });
+    expect(svc.getCached('k')).toEqual({ photoUrl: null, thumbUrl: null, thumbDataUrl: null });
   });
 });
 
@@ -320,7 +320,7 @@ describe('urlToBase64', () => {
 // ==============================================================================
 
 describe('getAllThumbs', () => {
-  it('FE-COMP-PHOTO-017: returns only entries with a non-null thumbDataUrl', async () => {
+  it('FE-COMP-PHOTO-017: returns entries with thumbUrl or thumbDataUrl', async () => {
     // key1: photo with thumb
     mockPlacePhoto.mockResolvedValueOnce({ photoUrl: 'https://example.com/img1.jpg' });
     // key2: no photo, no thumb
@@ -339,5 +339,18 @@ describe('getAllThumbs', () => {
     expect(Object.keys(thumbs)).toContain('key1');
     expect(thumbs['key1']).toBe('data:image/webp;base64,thumb1');
     expect(Object.keys(thumbs)).not.toContain('key2');
+  });
+
+  it('FE-COMP-PHOTO-018: includes server thumbUrl without base64 generation', async () => {
+    mockPlacePhoto.mockResolvedValueOnce({
+      photoUrl: '/api/maps/place-photo/ChIJtest/bytes',
+      thumbUrl: '/api/maps/place-photo/ChIJtest/thumb',
+    });
+
+    svc.fetchPhoto('proxy-key', 'ChIJtest');
+    await flush();
+
+    expect(svc.getAllThumbs()['proxy-key']).toBe('/api/maps/place-photo/ChIJtest/thumb');
+    expect(svc.getCached('proxy-key')?.thumbDataUrl).toBeNull();
   });
 });

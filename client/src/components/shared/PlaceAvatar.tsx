@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { getCategoryIcon } from './categoryIcons'
-import { getCached, isLoading, fetchPhoto, onThumbReady } from '../../services/photoService'
+import { getCached, isLoading, fetchPhoto, onThumbReady, displayPhotoSrc, type PhotoEntry } from '../../services/photoService'
+import { isPlacePhotoBytesUrl, parsePlacePhotoProxyUrl, placePhotoFetchId } from '../../utils/placePhotoUrls'
 import { useAuthStore } from '../../store/authStore'
 import type { Place } from '../../types'
 
@@ -16,9 +17,21 @@ interface PlaceAvatarProps {
   onPhotoClick?: (src: string) => void
 }
 
+function initialPhotoSrc(imageUrl: string | null | undefined): string | null {
+  if (!imageUrl) return null
+  if (isPlacePhotoBytesUrl(imageUrl)) return parsePlacePhotoProxyUrl(imageUrl)?.thumbUrl ?? null
+  return imageUrl
+}
+
+function initialFullPhotoSrc(imageUrl: string | null | undefined): string | null {
+  if (!imageUrl) return null
+  if (isPlacePhotoBytesUrl(imageUrl)) return parsePlacePhotoProxyUrl(imageUrl)?.fullUrl ?? null
+  return imageUrl
+}
+
 export default React.memo(function PlaceAvatar({ place, size = 32, category, onPhotoClick }: PlaceAvatarProps) {
-  const [photoSrc, setPhotoSrc] = useState<string | null>(place.image_url || null)
-  const [fullPhotoSrc, setFullPhotoSrc] = useState<string | null>(place.image_url || null)
+  const [photoSrc, setPhotoSrc] = useState<string | null>(() => initialPhotoSrc(place.image_url))
+  const [fullPhotoSrc, setFullPhotoSrc] = useState<string | null>(() => initialFullPhotoSrc(place.image_url))
   const [visible, setVisible] = useState(false)
   const imageUrlFailed = useRef(false)
   const ref = useRef<HTMLElement>(null)
@@ -40,16 +53,16 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category, onP
     return () => io.disconnect()
   }, [place.id])
 
-  const applyPhotoEntry = (entry: { photoUrl: string | null; thumbDataUrl: string | null }) => {
-    setPhotoSrc(entry.thumbDataUrl || entry.photoUrl)
-    setFullPhotoSrc(entry.photoUrl || entry.thumbDataUrl)
+  const applyPhotoEntry = (entry: PhotoEntry) => {
+    setPhotoSrc(displayPhotoSrc(entry))
+    if (entry?.photoUrl) setFullPhotoSrc(entry.photoUrl)
   }
 
   useEffect(() => {
     if (!visible) return
     if (place.image_url) {
-      setPhotoSrc(place.image_url)
-      setFullPhotoSrc(place.image_url)
+      setPhotoSrc(initialPhotoSrc(place.image_url))
+      setFullPhotoSrc(initialFullPhotoSrc(place.image_url))
       return
     }
     if (!placesPhotosEnabled) return
@@ -61,7 +74,7 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category, onP
     const cached = getCached(cacheKey)
     if (cached) {
       applyPhotoEntry(cached)
-      if (!cached.thumbDataUrl && cached.photoUrl) {
+      if (!displayPhotoSrc(cached)) {
         return onThumbReady(cacheKey, thumb => setPhotoSrc(thumb))
       }
       return

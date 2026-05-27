@@ -4,6 +4,7 @@ import { mapsApi } from '../../api/client'
 import { getCategoryIcon } from '../shared/categoryIcons'
 import { TagChips } from '../shared/PlaceTagsEditor'
 import { useTranslation } from '../../i18n'
+import { ensureFullPlacePhotoUrl } from '../../utils/placePhotoUrls'
 import type { Tag } from '../../types'
 
 interface MapPlaceHoverPreviewProps {
@@ -41,7 +42,9 @@ export default function MapPlaceHoverPreview({ place, photoUrl, x, y, language }
   const CatIcon = place.category_icon ? getCategoryIcon(place.category_icon) : null
   const openNow = details?.open_now
 
-  const cardW = 260
+  const cardW = 280
+  const imageH = 156
+  const displayPhoto = ensureFullPlacePhotoUrl(photoUrl)
   const left = Math.min(x + 16, typeof window !== 'undefined' ? window.innerWidth - cardW - 12 : x + 16)
   const top = Math.max(12, y - 8)
 
@@ -63,11 +66,12 @@ export default function MapPlaceHoverPreview({ place, photoUrl, x, y, language }
         animation: 'mapHoverPreviewIn 0.2s ease',
       }}
     >
-      {photoUrl && (
-        <div style={{ width: '100%', height: 120, background: 'var(--bg-tertiary, #e5e7eb)' }}>
+      {displayPhoto && (
+        <div style={{ width: '100%', height: imageH, background: 'var(--bg-tertiary, #e5e7eb)' }}>
           <img
-            src={photoUrl}
+            src={displayPhoto}
             alt=""
+            decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
             draggable={false}
           />
@@ -116,7 +120,7 @@ export default function MapPlaceHoverPreview({ place, photoUrl, x, y, language }
             </span>
           </div>
         )}
-        {!photoUrl && !place.category_name && openNow == null && (
+        {!displayPhoto && !place.category_name && openNow == null && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 11, color: 'var(--text-faint)' }}>
             <Clock size={10} />
             <span>{t('places.mapHoverHint')}</span>

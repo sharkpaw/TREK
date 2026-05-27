@@ -1,19 +1,26 @@
 import { mapsApi } from '../api/client'
+import {
+  parsePlacePhotoProxyUrl,
+  thumbUrlFromFullPhotoUrl,
+} from '../utils/placePhotoUrls'
 
 // Shared photo cache — used by PlaceAvatar (sidebar) and MapView (map markers)
-interface PhotoEntry {
+export interface PhotoEntry {
+  /** Full-size proxy URL — lightbox / hover preview only */
   photoUrl: string | null
+  /** Server-generated small JPEG — avatars and map markers */
+  thumbUrl: string | null
+  /** Base64 thumb for external URLs (Wikimedia etc.) */
   thumbDataUrl: string | null
 }
 
 const cache = new Map<string, PhotoEntry>()
 const inFlight = new Set<string>()
 const listeners = new Map<string, Set<(entry: PhotoEntry) => void>>()
-// Separate thumb listeners — called when thumbDataUrl becomes available after initial load
+// Called when a display-sized image becomes available (thumbUrl or thumbDataUrl)
 const thumbListeners = new Map<string, Set<(thumb: string) => void>>()
 
 // Concurrency limiter — at most N photo API requests in flight at once.
-// Prevents flooding the server (and external APIs it calls) when many places appear at once.
 const MAX_CONCURRENT = 5
 let activeRequests = 0
 const requestQueue: Array<() => void> = []
@@ -45,13 +52,18 @@ function notifyThumb(key: string, thumb: string) {
   thumbListeners.delete(key)
 }
 
+/** URL suitable for small UI (avatar, map marker) */
+export function displayPhotoSrc(entry: PhotoEntry | null | undefined): string | null {
+  if (!entry) return null
+  return entry.thumbDataUrl || entry.thumbUrl || null
+}
+
 export function onPhotoLoaded(key: string, fn: (entry: PhotoEntry) => void): () => void {
   if (!listeners.has(key)) listeners.set(key, new Set())
   listeners.get(key)!.add(fn)
   return () => { listeners.get(key)?.delete(fn) }
 }
 
-// Subscribe to thumb availability — called when base64 thumb is ready (may be after photoUrl)
 export function onThumbReady(key: string, fn: (thumb: string) => void): () => void {
   if (!thumbListeners.has(key)) thumbListeners.set(key, new Set())
   thumbListeners.get(key)!.add(fn)
@@ -66,7 +78,13 @@ export function isLoading(key: string): boolean {
   return inFlight.has(key)
 }
 
-// Convert image URL to base64 via canvas (CORS required — Wikimedia supports it)
+function applyThumbToEntry(cacheKey: string, entry: PhotoEntry, thumb: string) {
+  if (thumb.startsWith('data:')) entry.thumbDataUrl = thumb
+  else entry.thumbUrl = thumb
+  notifyThumb(cacheKey, thumb)
+}
+
+// Convert image URL to base64 via canvas — only for external URLs without a server thumb
 export function urlToBase64(url: string, size: number = 48): Promise<string | null> {
   return new Promise(resolve => {
     const img = new Image()
@@ -92,6 +110,14 @@ export function urlToBase64(url: string, size: number = 48): Promise<string | nu
   })
 }
 
+function storeEntry(cacheKey: string, entry: PhotoEntry, callback?: (entry: PhotoEntry) => void) {
+  cache.set(cacheKey, entry)
+  callback?.(entry)
+  notify(cacheKey, entry)
+  const display = displayPhotoSrc(entry)
+  if (display) notifyThumb(cacheKey, display)
+}
+
 export function fetchPhoto(
   cacheKey: string,
   photoId: string,
@@ -108,50 +134,42 @@ export function fetchPhoto(
     return
   }
 
-  // If photoId is already our stable proxy URL, use it directly — no API round-trip needed
-  if (photoId && photoId.startsWith('/api/maps/place-photo/')) {
-    const entry: PhotoEntry = { photoUrl: photoId, thumbDataUrl: null }
-    cache.set(cacheKey, entry)
-    callback?.(entry)
-    notify(cacheKey, entry)
-    // Generate base64 thumb in background
-    urlToBase64(photoId).then(thumb => {
-      if (thumb) { entry.thumbDataUrl = thumb; notifyThumb(cacheKey, thumb) }
-    })
+  // Stable proxy URL from DB — resolve full + thumb without API round-trip
+  const proxy = photoId.startsWith('/api/maps/place-photo/')
+    ? parsePlacePhotoProxyUrl(photoId.replace(/\/bytes$/, '').replace(/\/thumb$/, ''))
+    : null
+  if (proxy) {
+    const entry: PhotoEntry = {
+      photoUrl: proxy.fullUrl,
+      thumbUrl: proxy.thumbUrl,
+      thumbDataUrl: null,
+    }
+    storeEntry(cacheKey, entry, callback)
     return
   }
 
   inFlight.add(cacheKey)
   acquireRequestSlot().then(() =>
     mapsApi.placePhoto(photoId, lat, lng, name)
-      .then(async (data: { photoUrl?: string }) => {
+      .then(async (data: { photoUrl?: string; thumbUrl?: string }) => {
         const photoUrl = data.photoUrl || null
         if (!photoUrl) {
-          const entry: PhotoEntry = { photoUrl: null, thumbDataUrl: null }
-          cache.set(cacheKey, entry)
-          callback?.(entry)
-          notify(cacheKey, entry)
+          storeEntry(cacheKey, { photoUrl: null, thumbUrl: null, thumbDataUrl: null }, callback)
           return
         }
 
-        // Store URL first — sidebar can show immediately
-        const entry: PhotoEntry = { photoUrl, thumbDataUrl: null }
-        cache.set(cacheKey, entry)
-        callback?.(entry)
-        notify(cacheKey, entry)
+        const thumbUrl = data.thumbUrl || thumbUrlFromFullPhotoUrl(photoUrl)
+        const entry: PhotoEntry = { photoUrl, thumbUrl, thumbDataUrl: null }
+        storeEntry(cacheKey, entry, callback)
 
-        // Generate base64 thumb in background
-        const thumb = await urlToBase64(photoUrl)
-        if (thumb) {
-          entry.thumbDataUrl = thumb
-          notifyThumb(cacheKey, thumb)
+        // External URLs: generate a tiny base64 thumb client-side
+        if (!thumbUrl && !photoUrl.includes('/api/maps/place-photo/')) {
+          const thumb = await urlToBase64(photoUrl)
+          if (thumb) applyThumbToEntry(cacheKey, entry, thumb)
         }
       })
       .catch(() => {
-        const entry: PhotoEntry = { photoUrl: null, thumbDataUrl: null }
-        cache.set(cacheKey, entry)
-        callback?.(entry)
-        notify(cacheKey, entry)
+        storeEntry(cacheKey, { photoUrl: null, thumbUrl: null, thumbDataUrl: null }, callback)
       })
       .finally(() => { inFlight.delete(cacheKey); releaseRequestSlot() })
   )
@@ -160,7 +178,8 @@ export function fetchPhoto(
 export function getAllThumbs(): Record<string, string> {
   const r: Record<string, string> = {}
   for (const [k, v] of cache.entries()) {
-    if (v.thumbDataUrl) r[k] = v.thumbDataUrl
+    const src = displayPhotoSrc(v)
+    if (src) r[k] = src
   }
   return r
 }

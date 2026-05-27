@@ -1,12 +1,15 @@
 import { useEffect, useRef, useMemo, useState, createElement, type RefObject } from 'react'
 import MapPlaceHoverPreview from './MapPlaceHoverPreview'
 import { useMapPlaceHover, type MapHoverPlace } from './useMapPlaceHover'
+import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
+import { MAP_CLUSTER_MAX_ZOOM, MAP_CLUSTER_RADIUS, placesToClusterGeoJSON } from './mapClusterConfig'
 import { renderToStaticMarkup } from 'react-dom/server'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useAuthStore } from '../../store/authStore'
-import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs } from '../../services/photoService'
+import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs, displayPhotoSrc } from '../../services/photoService'
+import { placePhotoFetchId } from '../../utils/placePhotoUrls'
 import { CATEGORY_ICON_MAP } from '../shared/categoryIcons'
 import { isStandardFamily, supportsCustom3d, wantsTerrain, addCustom3dBuildings, addTerrainAndSky } from './mapboxSetup'
 import { attachLocationMarker, type LocationMarkerHandle } from './locationMarkerMapbox'
@@ -173,9 +176,11 @@ function attachMarkerInteractions(
   onMarkerClick: ((id: number) => void) | undefined,
   bindMarkerHover: (el: HTMLElement, place: MapHoverPlace) => () => void,
   hoverCleanupRef: RefObject<Map<number, () => void>>,
+  onDismissHover: () => void,
 ) {
   el.onclick = (ev) => {
     ev.stopPropagation()
+    onDismissHover()
     onMarkerClick?.(place.id)
   }
   hoverCleanupRef.current?.get(place.id)?.()
@@ -212,10 +217,23 @@ export function MapViewGL({
   const showEndpointLabels = useSettingsStore(s => s.settings.map_booking_labels) !== false
   const placesPhotosEnabled = useAuthStore(s => s.placesPhotosEnabled)
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>(getAllThumbs)
-  const { hoverPreview, isTouchDevice, bindMarkerHover, language } = useMapPlaceHover(photoUrls)
+  const {
+    hoverPreview,
+    clusterHover,
+    isTouchDevice,
+    bindMarkerHover,
+    language,
+    clearAllHover,
+    scheduleClusterHover,
+    clearClusterHover,
+  } = useMapPlaceHover(photoUrls)
   const markerMetaRef = useRef<Map<number, MarkerMeta>>(new Map())
   const hoverCleanupRef = useRef<Map<number, () => void>>(new Map())
+  const clearAllHoverRef = useRef(clearAllHover)
+  clearAllHoverRef.current = clearAllHover
+  const placesByIdRef = useRef<Map<number, MapHoverPlace>>(new Map())
   const [mapReady, setMapReady] = useState(false)
+  const [zoomRev, setZoomRev] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<Map<number, mapboxgl.Marker>>(new Map())
@@ -230,6 +248,10 @@ export function MapViewGL({
   onClickRefs.current.marker = onMarkerClick
   onClickRefs.current.map = onMapClick
   onClickRefs.current.context = onMapContextMenu
+
+  useEffect(() => {
+    placesByIdRef.current = new Map(places.map(p => [p.id, p as MapHoverPlace]))
+  }, [places])
 
   // Build/rebuild the map on style/token/3d change
   useEffect(() => {
@@ -307,6 +329,39 @@ export function MapViewGL({
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         })
       }
+      if (!map.getSource('trip-places-cluster')) {
+        map.addSource('trip-places-cluster', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+          cluster: true,
+          clusterMaxZoom: MAP_CLUSTER_MAX_ZOOM - 1,
+          clusterRadius: MAP_CLUSTER_RADIUS,
+        })
+        map.addLayer({
+          id: 'trip-clusters',
+          type: 'circle',
+          source: 'trip-places-cluster',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': '#6366f1',
+            'circle-radius': ['step', ['get', 'point_count'], 18, 10, 22, 50, 26],
+            'circle-stroke-width': 2.5,
+            'circle-stroke-color': '#ffffff',
+          },
+        })
+        map.addLayer({
+          id: 'trip-cluster-count',
+          type: 'symbol',
+          source: 'trip-places-cluster',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': ['get', 'point_count_abbreviated'],
+            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+            'text-size': 12,
+          },
+          paint: { 'text-color': '#ffffff' },
+        })
+      }
       // Signal that sources/layers are attached so overlay effects can
       // safely add their own sources. Style rebuilds reset this via the
       // cleanup below.
@@ -316,8 +371,10 @@ export function MapViewGL({
     map.on('click', (e) => {
       const t = e.originalEvent.target as HTMLElement
       if (t.closest('.mapboxgl-marker')) return // markers handle their own click
+      clearAllHoverRef.current()
       onClickRefs.current.map?.({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng } })
     })
+    map.on('zoomend', () => setZoomRev(z => z + 1))
     // In the mapbox-gl map the right mouse button is reserved for the
     // built-in rotate/pitch gesture, so we bind the "add place" action
     // to the middle mouse button (button === 1) instead.
@@ -423,17 +480,14 @@ export function MapViewGL({
       const cacheKey = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
       if (!cacheKey) continue
       const cached = getCached(cacheKey)
-      if (cached?.thumbDataUrl) {
-        setThumb(cacheKey, cached.thumbDataUrl)
+      const thumb = displayPhotoSrc(cached)
+      if (thumb) {
+        setThumb(cacheKey, thumb)
         continue
       }
-      cleanups.push(onThumbReady(cacheKey, thumb => setThumb(cacheKey, thumb)))
+      cleanups.push(onThumbReady(cacheKey, t => setThumb(cacheKey, t)))
       if (!cached && !isLoading(cacheKey)) {
-        const photoId =
-          (place.image_url?.startsWith('/api/maps/place-photo/') ? place.image_url : null)
-          || place.google_place_id
-          || place.osm_id
-          || place.image_url
+        const photoId = placePhotoFetchId(place)
         if (photoId || (place.lat && place.lng)) {
           fetchPhoto(cacheKey, photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name)
         }
@@ -449,10 +503,114 @@ export function MapViewGL({
     }
   }, [placeIds, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cluster geojson + layer visibility (zoom < 11 → clusters, else individual markers)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    const src = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource | undefined
+    src?.setData(placesToClusterGeoJSON(places))
+    const showClusters = map.getZoom() < MAP_CLUSTER_MAX_ZOOM
+    const vis = showClusters ? 'visible' : 'none'
+    if (map.getLayer('trip-clusters')) map.setLayoutProperty('trip-clusters', 'visibility', vis)
+    if (map.getLayer('trip-cluster-count')) map.setLayoutProperty('trip-cluster-count', 'visibility', vis)
+  }, [places, mapReady, zoomRev])
+
+  const scheduleClusterHoverRef = useRef(scheduleClusterHover)
+  const clearClusterHoverRef = useRef(clearClusterHover)
+  const lastClusterPlacesRef = useRef<MapHoverPlace[]>([])
+  scheduleClusterHoverRef.current = scheduleClusterHover
+  clearClusterHoverRef.current = clearClusterHover
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady || isTouchDevice) return
+
+    const loadClusterPlaces = (
+      clusterId: number,
+      cb: (places: MapHoverPlace[]) => void,
+    ) => {
+      const source = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource
+      source.getClusterLeaves(clusterId, 50, 0, (err, leaves) => {
+        if (err || !leaves?.length) return
+        const clusterPlaces: MapHoverPlace[] = []
+        for (const leaf of leaves) {
+          const id = leaf.properties?.placeId as number | undefined
+          if (id == null) continue
+          const place = placesByIdRef.current.get(id)
+          if (place) clusterPlaces.push(place)
+        }
+        if (clusterPlaces.length > 0) cb(clusterPlaces)
+      })
+    }
+
+    const onClusterClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+      clearAllHoverRef.current()
+      const features = map.queryRenderedFeatures(e.point, { layers: ['trip-clusters'] })
+      const clusterId = features[0]?.properties?.cluster_id as number | undefined
+      if (clusterId == null) return
+      const source = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource
+      source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+        if (err || zoom == null) return
+        const coords = (features[0].geometry as GeoJSON.Point).coordinates as [number, number]
+        map.easeTo({ center: coords, zoom: zoom + 0.5 })
+      })
+    }
+
+    const onClusterEnter = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+      const clusterId = e.features?.[0]?.properties?.cluster_id as number | undefined
+      if (clusterId == null) return
+      map.getCanvas().style.cursor = 'pointer'
+      loadClusterPlaces(clusterId, clusterPlaces => {
+        lastClusterPlacesRef.current = clusterPlaces
+        scheduleClusterHoverRef.current(clusterPlaces, e.originalEvent.clientX, e.originalEvent.clientY)
+      })
+    }
+
+    const onClusterMove = (e: mapboxgl.MapMouseEvent) => {
+      if (lastClusterPlacesRef.current.length === 0) return
+      scheduleClusterHoverRef.current(
+        lastClusterPlacesRef.current,
+        e.originalEvent.clientX,
+        e.originalEvent.clientY,
+      )
+    }
+
+    const onClusterLeave = () => {
+      map.getCanvas().style.cursor = ''
+      lastClusterPlacesRef.current = []
+      clearClusterHoverRef.current()
+    }
+
+    map.on('click', 'trip-clusters', onClusterClick)
+    map.on('mouseenter', 'trip-clusters', onClusterEnter)
+    map.on('mousemove', 'trip-clusters', onClusterMove)
+    map.on('mouseleave', 'trip-clusters', onClusterLeave)
+
+    return () => {
+      map.off('click', 'trip-clusters', onClusterClick)
+      map.off('mouseenter', 'trip-clusters', onClusterEnter)
+      map.off('mousemove', 'trip-clusters', onClusterMove)
+      map.off('mouseleave', 'trip-clusters', onClusterLeave)
+      map.getCanvas().style.cursor = ''
+    }
+  }, [mapReady, isTouchDevice])
+
   // Reconcile markers when places / selection / order badges change.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+
+    if (map.getZoom() < MAP_CLUSTER_MAX_ZOOM) {
+      markersRef.current.forEach((marker, id) => {
+        hoverCleanupRef.current.get(id)?.()
+        hoverCleanupRef.current.delete(id)
+        marker.remove()
+        markersRef.current.delete(id)
+        markerMetaRef.current.delete(id)
+      })
+      return
+    }
+
     const ids = new Set(places.map(p => p.id))
 
     markersRef.current.forEach((marker, id) => {
@@ -470,7 +628,7 @@ export function MapViewGL({
       const hoverPlace = place as MapHoverPlace
       const orderNumbers = dayOrderMap[place.id] ?? null
       const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
-      const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
+      const photoUrl = (pck && photoUrls[pck]) || null
       const selected = place.id === selectedPlaceId
       const meta: MarkerMeta = { orderNumbers, selected, photoUrl }
       const prev = markerMetaRef.current.get(place.id)
@@ -501,7 +659,7 @@ export function MapViewGL({
         orderNumbers,
         selected,
       )
-      attachMarkerInteractions(el, hoverPlace, onClickRefs.current.marker, bindMarkerHover, hoverCleanupRef)
+      attachMarkerInteractions(el, hoverPlace, onClickRefs.current.marker, bindMarkerHover, hoverCleanupRef, () => clearAllHoverRef.current())
       if (existing) existing.remove()
       const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([place.lng, place.lat])
@@ -509,7 +667,7 @@ export function MapViewGL({
       markersRef.current.set(place.id, m)
       markerMetaRef.current.set(place.id, meta)
     })
-  }, [places, selectedPlaceId, dayOrderMap, bindMarkerHover]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [places, selectedPlaceId, dayOrderMap, bindMarkerHover, zoomRev]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Photo thumbs arriving async — patch marker images without rebuilding markers.
   useEffect(() => {
@@ -519,7 +677,7 @@ export function MapViewGL({
       const place = places.find(p => p.id === id)
       if (!place) return
       const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
-      const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
+      const photoUrl = (pck && photoUrls[pck]) || null
       if (photoUrl === meta.photoUrl) return
       const el = marker.getElement()
       if (!el) return
@@ -729,6 +887,17 @@ export function MapViewGL({
           x={hoverPreview.x}
           y={hoverPreview.y}
           language={language}
+        />
+      )}
+      {clusterHover && !isTouchDevice && (
+        <MapPlaceClusterHoverPreview
+          places={clusterHover.places}
+          x={clusterHover.x}
+          y={clusterHover.y}
+          onPlaceClick={(id) => {
+            clearAllHover()
+            onMarkerClick?.(id)
+          }}
         />
       )}
     </div>

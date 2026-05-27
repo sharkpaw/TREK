@@ -10,10 +10,12 @@ import { mapsApi } from '../../api/client'
 import { getCategoryIcon, CATEGORY_ICON_MAP } from '../shared/categoryIcons'
 import ReservationOverlay from './ReservationOverlay'
 import MapPlaceHoverPreview from './MapPlaceHoverPreview'
+import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
+import { useMapPlaceHover } from './useMapPlaceHover'
+import { MAP_CLUSTER_MAX_ZOOM, MAP_CLUSTER_RADIUS } from './mapClusterConfig'
 import { useTranslation } from '../../i18n'
+import type { MarkerClusterGroup as LMarkerClusterGroup } from 'leaflet.markercluster'
 import type { Reservation } from '../../types'
-
-const MAP_HOVER_DELAY_MS = 2000
 
 function categoryIconSvg(iconName: string | null | undefined, size: number): string {
   const IconComponent = (iconName && CATEGORY_ICON_MAP[iconName]) || CATEGORY_ICON_MAP['MapPin']
@@ -237,7 +239,8 @@ function MapContextMenuHandler({ onContextMenu }: { onContextMenu: ((e: L.Leafle
 // Travel times are shown in the day sidebar (per-segment connectors), not on the map.
 
 // Module-level photo cache shared with PlaceAvatar
-import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs } from '../../services/photoService'
+import { getCached, isLoading, fetchPhoto, onThumbReady, getAllThumbs, displayPhotoSrc } from '../../services/photoService'
+import { placePhotoFetchId } from '../../utils/placePhotoUrls'
 import { useAuthStore } from '../../store/authStore'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import LocationButton from './LocationButton'
@@ -329,12 +332,15 @@ const MemoMarker = memo(function MemoMarker({
   const icon = createPlaceIcon({ ...place, image_url: photoUrl }, orderNumbers, isSelected)
   return (
     <Marker
+      ref={(m) => {
+        if (m) (m as L.Marker & { trekPlaceId?: number }).trekPlaceId = place.id
+      }}
       position={[place.lat, place.lng]}
       icon={icon}
       eventHandlers={{
         click: () => onClickPlace(place.id),
-        mouseover: (e: any) => onHover(place, e.originalEvent.clientX, e.originalEvent.clientY),
-        mousemove: (e: any) => onHover(place, e.originalEvent.clientX, e.originalEvent.clientY),
+        mouseover: (e: L.LeafletMouseEvent) => onHover(place, e.originalEvent.clientX, e.originalEvent.clientY),
+        mousemove: (e: L.LeafletMouseEvent) => onHover(place, e.originalEvent.clientX, e.originalEvent.clientY),
         mouseout: onHoverOut,
       }}
       zIndexOffset={isSelected ? 1000 : 0}
@@ -365,7 +371,6 @@ export const MapView = memo(function MapView({
   visibleConnectionIds = [] as number[],
   onReservationClick,
 }: any) {
-  const { language } = useTranslation()
   const visibleReservations = useMemo(() => {
     if (!visibleConnectionIds || visibleConnectionIds.length === 0) return []
     const set = new Set(visibleConnectionIds)
@@ -382,63 +387,71 @@ export const MapView = memo(function MapView({
     return { paddingTopLeft: [left, top], paddingBottomRight: [right, bottom] }
   }, [leftWidth, rightWidth, hasInspector, hasDayDetail])
 
-  const handleMarkerClick = useCallback((id: number) => {
-    onMarkerClick?.(id)
-  }, [onMarkerClick])
-
   // photoUrls: only base64 thumbs for smooth map zoom
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>(getAllThumbs)
-  const [hoverPreview, setHoverPreview] = useState<{
-    place: any
-    x: number
-    y: number
-    photoUrl: string | null
-  } | null>(null)
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingHoverRef = useRef<{ place: any; x: number; y: number } | null>(null)
+  const {
+    hoverPreview,
+    clusterHover,
+    isTouchDevice: hoverTouch,
+    language,
+    scheduleHoverPreview,
+    scheduleClusterHover,
+    clearClusterHover,
+    clearHoverPreview,
+    clearAllHover,
+  } = useMapPlaceHover(photoUrls)
 
-  const clearHoverTimer = useCallback(() => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current)
-      hoverTimerRef.current = null
-    }
-  }, [])
+  const handleMarkerClick = useCallback((id: number) => {
+    clearAllHover()
+    onMarkerClick?.(id)
+  }, [onMarkerClick, clearAllHover])
 
   const handleMarkerHover = useCallback((place: any, x: number, y: number) => {
-    pendingHoverRef.current = { place, x, y }
-    setHoverPreview(prev => (prev?.place?.id === place.id ? { ...prev, x, y } : prev))
-    clearHoverTimer()
-    hoverTimerRef.current = setTimeout(() => {
-      hoverTimerRef.current = null
-      const p = pendingHoverRef.current
-      if (!p || p.place.id !== place.id) return
-      const pck = p.place.google_place_id || p.place.osm_id || `${p.place.lat},${p.place.lng}`
-      setHoverPreview({
-        place: p.place,
-        x: p.x,
-        y: p.y,
-        photoUrl: (pck && photoUrls[pck]) || p.place.image_url || null,
-      })
-    }, MAP_HOVER_DELAY_MS)
-  }, [clearHoverTimer, photoUrls])
+    scheduleHoverPreview(place, x, y)
+  }, [scheduleHoverPreview])
 
-  const handleMarkerHoverOut = useCallback(() => {
-    pendingHoverRef.current = null
-    clearHoverTimer()
-    setHoverPreview(null)
-  }, [clearHoverTimer])
+  const handleMarkerHoverOut = clearHoverPreview
 
-  useEffect(() => () => clearHoverTimer(), [clearHoverTimer])
+  const handleMapClick = useCallback((e: L.LeafletMouseEvent) => {
+    clearAllHover()
+    onMapClick?.(e)
+  }, [onMapClick, clearAllHover])
+
+  const clusterRef = useRef<LMarkerClusterGroup | null>(null)
+  const lastClusterPlacesRef = useRef<any[]>([])
 
   useEffect(() => {
-    if (!hoverPreview) return
-    const p = hoverPreview.place
-    const pck = p.google_place_id || p.osm_id || `${p.lat},${p.lng}`
-    const url = (pck && photoUrls[pck]) || p.image_url || null
-    if (url && url !== hoverPreview.photoUrl) {
-      setHoverPreview(prev => (prev ? { ...prev, photoUrl: url } : prev))
+    const group = clusterRef.current
+    if (!group) return
+    const placesById = new Map(places.map((p: Place) => [p.id, p]))
+
+    const onClusterOver = (e: L.LeafletMouseEvent) => {
+      const cluster = (e as L.LeafletMouseEvent & { layer?: L.MarkerCluster }).layer
+      if (!cluster?.getAllChildMarkers) return
+      const clusterPlaces = cluster.getAllChildMarkers()
+        .map(m => {
+          const id = (m as L.Marker & { trekPlaceId?: number }).trekPlaceId
+          return id != null ? placesById.get(id) : undefined
+        })
+        .filter(Boolean)
+      if (clusterPlaces.length === 0) return
+      lastClusterPlacesRef.current = clusterPlaces
+      scheduleClusterHover(clusterPlaces, e.originalEvent.clientX, e.originalEvent.clientY)
     }
-  }, [photoUrls, hoverPreview])
+
+    const onClusterOut = () => {
+      lastClusterPlacesRef.current = []
+      clearClusterHover()
+    }
+
+    group.on('clustermouseover', onClusterOver)
+    group.on('clustermouseout', onClusterOut)
+    return () => {
+      group.off('clustermouseover', onClusterOver)
+      group.off('clustermouseout', onClusterOut)
+    }
+  }, [places, scheduleClusterHover, clearClusterHover])
+
   const placesPhotosEnabled = useAuthStore(s => s.placesPhotosEnabled)
   // Batch photo state updates through a RAF so N simultaneous photo loads
   // collapse into a single re-render instead of N separate renders.
@@ -469,19 +482,16 @@ export const MapView = memo(function MapView({
       if (!cacheKey) continue
 
       const cached = getCached(cacheKey)
-      if (cached?.thumbDataUrl) {
-        setThumb(cacheKey, cached.thumbDataUrl)
+      const thumb = displayPhotoSrc(cached)
+      if (thumb) {
+        setThumb(cacheKey, thumb)
         continue
       }
 
-      cleanups.push(onThumbReady(cacheKey, thumb => setThumb(cacheKey, thumb)))
+      cleanups.push(onThumbReady(cacheKey, t => setThumb(cacheKey, t)))
 
       if (!cached && !isLoading(cacheKey)) {
-        const photoId =
-          (place.image_url?.startsWith('/api/maps/place-photo/') ? place.image_url : null)
-          || place.google_place_id
-          || place.osm_id
-          || place.image_url
+        const photoId = placePhotoFetchId(place)
         if (photoId || (place.lat && place.lng)) {
           fetchPhoto(cacheKey, photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name)
         }
@@ -507,12 +517,12 @@ export const MapView = memo(function MapView({
     })
   }, [])
 
-  const isTouchDevice = typeof window !== 'undefined' && navigator.maxTouchPoints > 0
+  const isTouchDevice = hoverTouch
 
   const markers = useMemo(() => places.map((place) => {
     const isSelected = place.id === selectedPlaceId
     const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
-    const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
+    const photoUrl = (pck && photoUrls[pck]) || null
     const orderNumbers = dayOrderMap[place.id] ?? null
     return (
       <MemoMarker
@@ -575,16 +585,17 @@ export const MapView = memo(function MapView({
       <MapController center={center} zoom={zoom} />
       <BoundsController places={dayPlaces.length > 0 ? dayPlaces : places} fitKey={fitKey} paddingOpts={paddingOpts} hasDayDetail={hasDayDetail} />
       <SelectionController places={places} selectedPlaceId={selectedPlaceId} dayPlaces={dayPlaces} paddingOpts={paddingOpts} />
-      <MapClickHandler onClick={onMapClick} />
+      <MapClickHandler onClick={handleMapClick} />
       <MapContextMenuHandler onContextMenu={onMapContextMenu} />
       <LeafletLocationLayer position={userPosition} mode={trackingMode} />
 
       <MarkerClusterGroup
+        ref={clusterRef}
         chunkedLoading
         chunkInterval={30}
         chunkDelay={0}
-        maxClusterRadius={30}
-        disableClusteringAtZoom={11}
+        maxClusterRadius={MAP_CLUSTER_RADIUS}
+        disableClusteringAtZoom={MAP_CLUSTER_MAX_ZOOM}
         spiderfyOnMaxZoom
         showCoverageOnHover={false}
         zoomToBoundsOnClick
@@ -633,6 +644,14 @@ export const MapView = memo(function MapView({
         x={hoverPreview.x}
         y={hoverPreview.y}
         language={language}
+      />
+    )}
+    {clusterHover && !isTouchDevice && (
+      <MapPlaceClusterHoverPreview
+        places={clusterHover.places}
+        x={clusterHover.x}
+        y={clusterHover.y}
+        onPlaceClick={handleMarkerClick}
       />
     )}
     </>

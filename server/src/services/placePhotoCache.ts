@@ -2,7 +2,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import crypto from 'node:crypto';
+import { Jimp } from 'jimp';
 import { db } from '../db/database';
+
+const PLACE_PHOTO_THUMB_PX = 96;
 
 const GOOGLE_PHOTO_DIR = path.join(__dirname, '../../uploads/photos/google');
 const ERROR_TTL = 5 * 60 * 1000;
@@ -30,10 +33,57 @@ function proxyUrl(placeId: string): string {
   return `/api/maps/place-photo/${encodeURIComponent(placeId)}/bytes`;
 }
 
+function thumbProxyUrl(placeId: string): string {
+  return `/api/maps/place-photo/${encodeURIComponent(placeId)}/thumb`;
+}
+
+function thumbFilePath(placeId: string): string {
+  const hash = crypto.createHash('sha1').update(placeId).digest('hex');
+  return path.join(GOOGLE_PHOTO_DIR, `${hash}_thumb.jpg`);
+}
+
+function thumbDiskKey(placeId: string): string {
+  return `thumb:${placeId}`;
+}
+
 interface CachedPhoto {
   photoUrl: string;
+  thumbUrl: string;
   filePath: string;
   attribution: string | null;
+}
+
+export async function ensureThumbFile(placeId: string): Promise<string | null> {
+  const main = serveFilePath(placeId);
+  if (!main) return null;
+
+  const tfp = thumbFilePath(placeId);
+  const diskKey = thumbDiskKey(placeId);
+
+  if (knownOnDisk.has(diskKey) || fs.existsSync(tfp)) {
+    knownOnDisk.add(diskKey);
+    return tfp;
+  }
+
+  try {
+    const img = await Jimp.read(main);
+    const w = img.bitmap.width;
+    const h = img.bitmap.height;
+    const s = Math.min(w, h);
+    img.crop({
+      x: Math.floor((w - s) / 2),
+      y: Math.floor((h - s) / 2),
+      w: s,
+      h: s,
+    });
+    img.scaleToFit({ w: PLACE_PHOTO_THUMB_PX, h: PLACE_PHOTO_THUMB_PX });
+    await img.write(tfp as `${string}.jpg`, { quality: 72 });
+    knownOnDisk.add(diskKey);
+    return tfp;
+  } catch (err) {
+    console.error('Failed to generate place photo thumb:', placeId, err);
+    return null;
+  }
 }
 
 export function get(placeId: string): CachedPhoto | null {
@@ -55,7 +105,12 @@ export function get(placeId: string): CachedPhoto | null {
     knownOnDisk.add(placeId);
   }
 
-  return { photoUrl: proxyUrl(placeId), filePath: fp, attribution: row.attribution };
+  return {
+    photoUrl: proxyUrl(placeId),
+    thumbUrl: thumbProxyUrl(placeId),
+    filePath: fp,
+    attribution: row.attribution,
+  };
 }
 
 export function getErrored(placeId: string): boolean {
@@ -87,7 +142,9 @@ export async function put(placeId: string, bytes: Buffer, attribution: string | 
     'INSERT OR REPLACE INTO google_place_photo_meta (place_id, attribution, fetched_at, error_at) VALUES (?, ?, ?, NULL)'
   ).run(placeId, attribution, Date.now());
 
-  return { photoUrl: proxyUrl(placeId), filePath: fp, attribution };
+  await ensureThumbFile(placeId);
+
+  return { photoUrl: proxyUrl(placeId), thumbUrl: thumbProxyUrl(placeId), filePath: fp, attribution };
 }
 
 export function getInFlight(placeId: string): Promise<{ filePath: string; attribution: string | null } | null> | undefined {
@@ -107,4 +164,13 @@ export function serveFilePath(placeId: string): string | null {
   if (!fs.existsSync(fp)) return null;
   knownOnDisk.add(placeId);
   return fp;
+}
+
+export function serveThumbFilePath(placeId: string): string | null {
+  const diskKey = thumbDiskKey(placeId);
+  const tfp = thumbFilePath(placeId);
+  if (knownOnDisk.has(diskKey)) return tfp;
+  if (!fs.existsSync(tfp)) return null;
+  knownOnDisk.add(diskKey);
+  return tfp;
 }

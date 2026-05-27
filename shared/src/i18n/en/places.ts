@@ -58,6 +58,7 @@ const places: TranslationStrings = {
   'places.tagNamePlaceholder': 'Tag name',
   'places.addFirstTag': 'Add a tag',
   'places.mapHoverHint': 'Hover to preview',
+  'places.clusterHoverCount': '{count} places in this area',
   'places.clearFilter': 'Clear filter',
   'places.count': '{count} places',
   'places.countSingular': '1 place',

@@ -6,6 +6,7 @@ import { useCanDo } from '../store/permissionsStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { MapViewAuto as MapView } from '../components/Map/MapViewAuto'
 import { getCached, fetchPhoto } from '../services/photoService'
+import { placePhotoFetchId } from '../utils/placePhotoUrls'
 import DayPlanSidebar from '../components/Planner/DayPlanSidebar'
 import PlacesSidebar from '../components/Planner/PlacesSidebar'
 import PlaceInspector from '../components/Planner/PlaceInspector'
@@ -320,10 +321,11 @@ export default function TripPlannerPage(): React.ReactElement | null {
   useEffect(() => {
     if (isLoading || !places || places.length === 0 || !placesPhotosEnabled) return
     for (const p of places) {
-      if (p.image_url) continue
+      if (p.image_url && !p.image_url.startsWith('/api/maps/place-photo/')) continue
       const cacheKey = p.google_place_id || p.osm_id || `${p.lat},${p.lng}`
       if (!cacheKey || getCached(cacheKey)) continue
-      const photoId = p.google_place_id || p.osm_id
+      const photoId = placePhotoFetchId(p)
+        || (p.image_url?.startsWith('/api/maps/place-photo/') ? p.image_url : null)
       if (photoId || (p.lat && p.lng)) {
         fetchPhoto(cacheKey, photoId || `coords:${p.lat}:${p.lng}`, p.lat, p.lng, p.name)
       }

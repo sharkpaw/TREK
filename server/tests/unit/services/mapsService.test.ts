@@ -16,6 +16,7 @@ const { mockDbGet, mockDbRun, mockCheckSsrf, mockCacheGet, mockCacheGetErrored, 
   mockCacheGetErrored: vi.fn(() => false),
   mockCachePut: vi.fn(async (placeId: string, _bytes: Buffer, attribution: string | null) => ({
     photoUrl: `/api/maps/place-photo/${encodeURIComponent(placeId)}/bytes`,
+    thumbUrl: `/api/maps/place-photo/${encodeURIComponent(placeId)}/thumb`,
     filePath: `/tmp/${placeId}.jpg`,
     attribution,
   })),
@@ -50,6 +51,8 @@ vi.mock('../../../src/services/placePhotoCache', () => ({
   getInFlight: (placeId: string) => mockCacheGetInFlight(placeId),
   setInFlight: (placeId: string, p: Promise<any>) => mockCacheSetInFlight(placeId, p),
   serveFilePath: vi.fn(() => null),
+  serveThumbFilePath: vi.fn(() => null),
+  ensureThumbFile: vi.fn(async () => null),
 }));
 
 import {
@@ -72,6 +75,7 @@ afterEach(() => {
   mockCachePut.mockReset();
   mockCachePut.mockImplementation(async (placeId: string, _bytes: Buffer, attribution: string | null) => ({
     photoUrl: `/api/maps/place-photo/${encodeURIComponent(placeId)}/bytes`,
+    thumbUrl: `/api/maps/place-photo/${encodeURIComponent(placeId)}/thumb`,
     filePath: `/tmp/${placeId}.jpg`,
     attribution,
   }));
@@ -1195,6 +1199,7 @@ describe('getPlacePhoto (fetch stubbed)', () => {
     const cachedUrl = `/api/maps/place-photo/${encodeURIComponent(placeId)}/bytes`;
     mockCacheGet.mockReturnValue({
       photoUrl: cachedUrl,
+      thumbUrl: `/api/maps/place-photo/${encodeURIComponent(placeId)}/thumb`,
       filePath: `/tmp/${placeId}.jpg`,
       attribution: null,
     });

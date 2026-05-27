@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
+import { getCached } from '../../services/photoService'
+import { parsePlacePhotoProxyUrl, ensureFullPlacePhotoUrl } from '../../utils/placePhotoUrls'
 import type { Place } from '../../types'
 
-export const MAP_HOVER_DELAY_MS = 2000
+export const MAP_HOVER_DELAY_MS = 1300
 
 export type MapHoverPlace = Place & {
   category_name?: string | null
@@ -14,9 +16,24 @@ function photoKey(place: MapHoverPlace) {
   return place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
 }
 
-function resolvePhotoUrl(place: MapHoverPlace, photoUrls: Record<string, string>) {
+/** Hover card — full cached image (never the /thumb variant) */
+function resolveHoverFullPhoto(place: MapHoverPlace): string | null {
   const pck = photoKey(place)
-  return (pck && photoUrls[pck]) || place.image_url || null
+  const cached = pck ? getCached(pck) : undefined
+  if (cached?.photoUrl) return ensureFullPlacePhotoUrl(cached.photoUrl)
+  if (place.image_url) {
+    const parsed = parsePlacePhotoProxyUrl(place.image_url)
+    if (parsed) return parsed.fullUrl
+    if (!place.image_url.includes('/api/maps/place-photo/')) return place.image_url
+  }
+  return null
+}
+
+function prefetchHoverPhoto(url: string) {
+  if (typeof Image === 'undefined') return
+  const img = new Image()
+  img.decoding = 'async'
+  img.src = url
 }
 
 export function useMapPlaceHover(photoUrls: Record<string, string>) {
@@ -27,8 +44,15 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
     y: number
     photoUrl: string | null
   } | null>(null)
+  const [clusterHover, setClusterHover] = useState<{
+    places: MapHoverPlace[]
+    x: number
+    y: number
+  } | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clusterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingHoverRef = useRef<{ place: MapHoverPlace; x: number; y: number } | null>(null)
+  const pendingClusterRef = useRef<{ places: MapHoverPlace[]; x: number; y: number } | null>(null)
   const photoUrlsRef = useRef(photoUrls)
   photoUrlsRef.current = photoUrls
 
@@ -39,8 +63,35 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
     }
   }, [])
 
+  const clearClusterTimer = useCallback(() => {
+    if (clusterTimerRef.current) {
+      clearTimeout(clusterTimerRef.current)
+      clusterTimerRef.current = null
+    }
+  }, [])
+
+  const clearHoverPreview = useCallback(() => {
+    pendingHoverRef.current = null
+    clearHoverTimer()
+    setHoverPreview(null)
+  }, [clearHoverTimer])
+
+  const clearClusterHover = useCallback(() => {
+    pendingClusterRef.current = null
+    clearClusterTimer()
+    setClusterHover(null)
+  }, [clearClusterTimer])
+
+  const clearAllHover = useCallback(() => {
+    clearHoverPreview()
+    clearClusterHover()
+  }, [clearHoverPreview, clearClusterHover])
+
   const scheduleHoverPreview = useCallback((place: MapHoverPlace, x: number, y: number) => {
+    clearClusterHover()
     pendingHoverRef.current = { place, x, y }
+    const preload = resolveHoverFullPhoto(place)
+    if (preload) prefetchHoverPhoto(preload)
     setHoverPreview(prev => (prev?.place?.id === place.id ? { ...prev, x, y } : prev))
     clearHoverTimer()
     hoverTimerRef.current = setTimeout(() => {
@@ -51,22 +102,37 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
         place: p.place,
         x: p.x,
         y: p.y,
-        photoUrl: resolvePhotoUrl(p.place, photoUrlsRef.current),
+        photoUrl: resolveHoverFullPhoto(p.place),
       })
     }, MAP_HOVER_DELAY_MS)
-  }, [clearHoverTimer])
+  }, [clearHoverTimer, clearClusterHover])
 
-  const clearHoverPreview = useCallback(() => {
-    pendingHoverRef.current = null
+  const scheduleClusterHover = useCallback((places: MapHoverPlace[], x: number, y: number) => {
+    if (places.length === 0) return
+    clearHoverPreview()
+    pendingClusterRef.current = { places, x, y }
+    setClusterHover(prev => (
+      prev && prev.places.length === places.length && prev.places[0]?.id === places[0]?.id
+        ? { ...prev, x, y }
+        : prev
+    ))
+    clearClusterTimer()
+    clusterTimerRef.current = setTimeout(() => {
+      clusterTimerRef.current = null
+      const p = pendingClusterRef.current
+      if (!p) return
+      setClusterHover({ places: p.places, x: p.x, y: p.y })
+    }, MAP_HOVER_DELAY_MS)
+  }, [clearClusterTimer, clearHoverPreview])
+
+  useEffect(() => () => {
     clearHoverTimer()
-    setHoverPreview(null)
-  }, [clearHoverTimer])
-
-  useEffect(() => () => clearHoverTimer(), [clearHoverTimer])
+    clearClusterTimer()
+  }, [clearHoverTimer, clearClusterTimer])
 
   useEffect(() => {
     if (!hoverPreview) return
-    const url = resolvePhotoUrl(hoverPreview.place, photoUrls)
+    const url = resolveHoverFullPhoto(hoverPreview.place)
     if (url && url !== hoverPreview.photoUrl) {
       setHoverPreview(prev => (prev ? { ...prev, photoUrl: url } : prev))
     }
@@ -91,8 +157,13 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
   return {
     language,
     hoverPreview,
+    clusterHover,
     isTouchDevice,
     bindMarkerHover,
     clearHoverPreview,
+    clearClusterHover,
+    clearAllHover,
+    scheduleClusterHover,
+    scheduleHoverPreview,
   }
 }
