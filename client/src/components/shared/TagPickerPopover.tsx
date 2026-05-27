@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Search } from 'lucide-react'
+import { Check, Plus, Search } from 'lucide-react'
 import { useTranslation } from '../../i18n'
+import { useTripStore } from '../../store/tripStore'
 import type { Tag } from '../../types'
 
 interface TagPickerPopoverProps {
@@ -20,15 +21,40 @@ export default function TagPickerPopover({
   anchorEl,
 }: TagPickerPopoverProps) {
   const { t } = useTranslation()
+  const addTag = useTripStore(s => s.addTag)
   const [search, setSearch] = useState('')
+  const [creating, setCreating] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
+  const trimmedSearch = search.trim()
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = trimmedSearch.toLowerCase()
     if (!q) return tags
     return tags.filter(tag => tag.name.toLowerCase().includes(q))
-  }, [tags, search])
+  }, [tags, trimmedSearch])
+
+  const exactMatchExists = useMemo(
+    () => trimmedSearch.length > 0 && tags.some(t => t.name.toLowerCase() === trimmedSearch.toLowerCase()),
+    [tags, trimmedSearch],
+  )
+
+  const showCreateOption = trimmedSearch.length > 0 && !exactMatchExists
+
+  const handleCreate = useCallback(async () => {
+    if (!trimmedSearch || creating || exactMatchExists) return
+    setCreating(true)
+    try {
+      const tag = await addTag({ name: trimmedSearch })
+      onToggle(String(tag.id))
+      setSearch('')
+    } catch {
+      /* toast in store */
+    } finally {
+      setCreating(false)
+    }
+  }, [trimmedSearch, creating, exactMatchExists, addTag, onToggle])
 
   useEffect(() => {
     searchRef.current?.focus()
@@ -36,12 +62,16 @@ export default function TagPickerPopover({
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (panelRef.current?.contains(t) || anchorEl?.contains(t)) return
+      const target = e.target as Node
+      if (panelRef.current?.contains(target) || anchorEl?.contains(target)) return
       onClose()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
+      if (e.key === 'Enter' && showCreateOption && !creating) {
+        e.preventDefault()
+        void handleCreate()
+      }
     }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
@@ -49,7 +79,7 @@ export default function TagPickerPopover({
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
     }
-  }, [anchorEl, onClose])
+  }, [anchorEl, onClose, showCreateOption, creating, handleCreate])
 
   const rect = anchorEl?.getBoundingClientRect()
   if (!rect) return null
@@ -98,11 +128,24 @@ export default function TagPickerPopover({
         </div>
       </div>
       <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
-        {filtered.length === 0 ? (
-          <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-faint)' }}>
-            {t('places.noTagsMatch')}
-          </div>
-        ) : filtered.map(tag => {
+        {showCreateOption && (
+          <button
+            type="button"
+            disabled={creating}
+            onClick={() => void handleCreate()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+              padding: '8px 10px', borderRadius: 8, border: 'none', cursor: creating ? 'wait' : 'pointer',
+              background: 'var(--bg-hover)', fontFamily: 'inherit', fontSize: 12,
+              fontWeight: 600, color: 'var(--accent, #6366f1)', textAlign: 'left',
+              marginBottom: filtered.length > 0 ? 4 : 0,
+            }}
+          >
+            <Plus size={14} style={{ flexShrink: 0 }} />
+            <span>{t('places.createTagFromSearch').replace('{name}', trimmedSearch)}</span>
+          </button>
+        )}
+        {filtered.map(tag => {
           const active = selectedIds.has(String(tag.id))
           const dotColor = tag.color || 'var(--accent)'
           return (
@@ -132,6 +175,11 @@ export default function TagPickerPopover({
             </button>
           )
         })}
+        {!showCreateOption && filtered.length === 0 && (
+          <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-faint)' }}>
+            {t('places.noTagsYet')}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

@@ -57,6 +57,8 @@ const places: TranslationStrings = {
   'places.searchTags': 'Search tags…',
   'places.searchCategory': 'Search category…',
   'places.noTagsMatch': 'No matching tags',
+  'places.createTagFromSearch': 'Create “{name}”',
+  'places.noTagsYet': 'No tags yet',
   'places.createTag': 'New tag',
   'places.tagNamePlaceholder': 'Tag name',
   'places.addFirstTag': 'Add a tag',

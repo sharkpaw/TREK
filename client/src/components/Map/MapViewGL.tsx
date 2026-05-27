@@ -2,7 +2,12 @@ import { useEffect, useRef, useMemo, useState, createElement, type RefObject } f
 import MapPlaceHoverPreview from './MapPlaceHoverPreview'
 import { useMapPlaceHover, type MapHoverPlace } from './useMapPlaceHover'
 import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
-import { MAP_CLUSTER_MAX_ZOOM, MAP_CLUSTER_RADIUS, placesToClusterGeoJSON } from './mapClusterConfig'
+import {
+  MAP_CLUSTER_MAX_ZOOM,
+  MAP_CLUSTER_MIN_POINTS,
+  MAP_CLUSTER_RADIUS,
+  placesToClusterGeoJSON,
+} from './mapClusterConfig'
 import { renderToStaticMarkup } from 'react-dom/server'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -340,6 +345,7 @@ export function MapViewGL({
           cluster: true,
           clusterMaxZoom: MAP_CLUSTER_MAX_ZOOM - 1,
           clusterRadius: MAP_CLUSTER_RADIUS,
+          clusterMinPoints: MAP_CLUSTER_MIN_POINTS,
         })
         map.addLayer({
           id: 'trip-clusters',
@@ -569,10 +575,20 @@ export function MapViewGL({
           const c = (leaf.geometry as GeoJSON.Point).coordinates as [number, number]
           bounds.extend(c)
         }
-        map.fitBounds(bounds, {
-          padding: 56,
-          maxZoom: MAP_CLUSTER_MAX_ZOOM - 1,
-          duration: 450,
+        const leafCount = leaves.length
+        source.getClusterExpansionZoom(clusterId, (expErr, expZoom) => {
+          const current = map.getZoom()
+          const maxZoom = leafCount <= 20
+            ? MAP_CLUSTER_MAX_ZOOM + 0.5
+            : Math.min(
+              Math.max(expZoom ?? current + 2, current + 2.5),
+              MAP_CLUSTER_MAX_ZOOM - 0.5,
+            )
+          map.fitBounds(bounds, {
+            padding: 56,
+            maxZoom: expErr ? MAP_CLUSTER_MAX_ZOOM + 0.5 : maxZoom,
+            duration: 450,
+          })
         })
       })
     }

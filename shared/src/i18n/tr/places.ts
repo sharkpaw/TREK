@@ -51,6 +51,8 @@ const places: TranslationStrings = {
   'places.searchTags': 'Etiket ara…',
   'places.searchCategory': 'Kategori ara…',
   'places.noTagsMatch': 'Eşleşen etiket yok',
+  'places.createTagFromSearch': '+ {name} oluştur',
+  'places.noTagsYet': 'Henüz etiket yok',
   'places.createTag': 'Yeni etiket',
   'places.tagNamePlaceholder': 'Etiket adı',
   'places.addFirstTag': 'Etiket ekle',

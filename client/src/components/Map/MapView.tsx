@@ -12,7 +12,7 @@ import ReservationOverlay from './ReservationOverlay'
 import MapPlaceHoverPreview from './MapPlaceHoverPreview'
 import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
 import { useMapPlaceHover } from './useMapPlaceHover'
-import { MAP_CLUSTER_MAX_ZOOM, MAP_CLUSTER_RADIUS } from './mapClusterConfig'
+import { MAP_CLUSTER_MAX_ZOOM, clusterRadiusForZoom } from './mapClusterConfig'
 import { useTranslation } from '../../i18n'
 import type { MarkerClusterGroup as LMarkerClusterGroup } from 'leaflet.markercluster'
 import type { Reservation } from '../../types'
@@ -594,7 +594,7 @@ export const MapView = memo(function MapView({
         chunkedLoading
         chunkInterval={30}
         chunkDelay={0}
-        maxClusterRadius={MAP_CLUSTER_RADIUS}
+        maxClusterRadius={clusterRadiusForZoom}
         disableClusteringAtZoom={MAP_CLUSTER_MAX_ZOOM}
         spiderfyOnMaxZoom
         showCoverageOnHover={false}
