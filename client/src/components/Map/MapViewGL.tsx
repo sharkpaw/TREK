@@ -178,6 +178,10 @@ function attachMarkerInteractions(
   hoverCleanupRef: RefObject<Map<number, () => void>>,
   onDismissHover: () => void,
 ) {
+  el.onmousedown = (ev) => {
+    if (ev.button !== 0) return
+    onDismissHover()
+  }
   el.onclick = (ev) => {
     ev.stopPropagation()
     onDismissHover()
@@ -374,7 +378,13 @@ export function MapViewGL({
       clearAllHoverRef.current()
       onClickRefs.current.map?.({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng } })
     })
-    map.on('zoomend', () => setZoomRev(z => z + 1))
+    let zoomRaf = 0
+    const bumpZoomRev = () => {
+      if (zoomRaf) cancelAnimationFrame(zoomRaf)
+      zoomRaf = requestAnimationFrame(() => setZoomRev(z => z + 1))
+    }
+    map.on('zoom', bumpZoomRev)
+    map.on('zoomend', bumpZoomRev)
     // In the mapbox-gl map the right mouse button is reserved for the
     // built-in rotate/pitch gesture, so we bind the "add place" action
     // to the middle mouse button (button === 1) instead.
@@ -503,7 +513,7 @@ export function MapViewGL({
     }
   }, [placeIds, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cluster geojson + layer visibility (zoom < 11 → clusters, else individual markers)
+  // Cluster geojson + layer visibility (zoom < MAP_CLUSTER_MAX_ZOOM → clusters)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
@@ -518,6 +528,7 @@ export function MapViewGL({
   const scheduleClusterHoverRef = useRef(scheduleClusterHover)
   const clearClusterHoverRef = useRef(clearClusterHover)
   const lastClusterPlacesRef = useRef<MapHoverPlace[]>([])
+  const clusterHoverGenRef = useRef(0)
   scheduleClusterHoverRef.current = scheduleClusterHover
   clearClusterHoverRef.current = clearClusterHover
 
@@ -544,15 +555,25 @@ export function MapViewGL({
     }
 
     const onClusterClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+      e.preventDefault()
+      clusterHoverGenRef.current += 1
       clearAllHoverRef.current()
       const features = map.queryRenderedFeatures(e.point, { layers: ['trip-clusters'] })
       const clusterId = features[0]?.properties?.cluster_id as number | undefined
       if (clusterId == null) return
       const source = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource
-      source.getClusterExpansionZoom(clusterId, (err, zoom) => {
-        if (err || zoom == null) return
-        const coords = (features[0].geometry as GeoJSON.Point).coordinates as [number, number]
-        map.easeTo({ center: coords, zoom: zoom + 0.5 })
+      source.getClusterLeaves(clusterId, 100, 0, (err, leaves) => {
+        if (err || !leaves?.length) return
+        const bounds = new mapboxgl.LngLatBounds()
+        for (const leaf of leaves) {
+          const c = (leaf.geometry as GeoJSON.Point).coordinates as [number, number]
+          bounds.extend(c)
+        }
+        map.fitBounds(bounds, {
+          padding: 56,
+          maxZoom: MAP_CLUSTER_MAX_ZOOM - 1,
+          duration: 450,
+        })
       })
     }
 
@@ -560,7 +581,9 @@ export function MapViewGL({
       const clusterId = e.features?.[0]?.properties?.cluster_id as number | undefined
       if (clusterId == null) return
       map.getCanvas().style.cursor = 'pointer'
+      const gen = ++clusterHoverGenRef.current
       loadClusterPlaces(clusterId, clusterPlaces => {
+        if (gen !== clusterHoverGenRef.current) return
         lastClusterPlacesRef.current = clusterPlaces
         scheduleClusterHoverRef.current(clusterPlaces, e.originalEvent.clientX, e.originalEvent.clientY)
       })

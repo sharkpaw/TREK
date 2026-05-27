@@ -130,6 +130,18 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
     clearClusterTimer()
   }, [clearHoverTimer, clearClusterTimer])
 
+  // Dismiss preview on any pointer down outside the cluster list (sidebar, map, markers).
+  useEffect(() => {
+    if (!hoverPreview && !clusterHover) return
+    const onPointerDown = (ev: PointerEvent) => {
+      const t = ev.target as HTMLElement
+      if (t.closest('[data-testid="map-cluster-hover-preview"]')) return
+      clearAllHover()
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [hoverPreview, clusterHover, clearAllHover])
+
   useEffect(() => {
     if (!hoverPreview) return
     const url = resolveHoverFullPhoto(hoverPreview.place)

@@ -1,8 +1,12 @@
 import type { Place } from '../../types'
 
-/** Matches Leaflet MarkerClusterGroup `disableClusteringAtZoom` */
-export const MAP_CLUSTER_MAX_ZOOM = 11
-export const MAP_CLUSTER_RADIUS = 30
+/**
+ * Individual markers appear at zoom >= this level.
+ * Higher value = stay grouped longer while zooming in (fewer tiny clusters).
+ */
+export const MAP_CLUSTER_MAX_ZOOM = 14
+/** Larger radius merges more points per cluster (Leaflet `maxClusterRadius`). */
+export const MAP_CLUSTER_RADIUS = 55
 
 export function placesToClusterGeoJSON(
   places: Place[],
