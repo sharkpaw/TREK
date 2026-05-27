@@ -72,7 +72,7 @@ function seedExampleTrips(db: Database.Database, adminId: number, demoId: number
   const insertMember = db.prepare('INSERT OR IGNORE INTO trip_members (trip_id, user_id, invited_by) VALUES (?, ?, ?)');
   const insertNote = db.prepare('INSERT INTO day_notes (day_id, trip_id, text, time, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?)');
 
-  // Category IDs: 1=Hotel, 2=Restaurant, 3=Attraction, 5=Transport, 7=Bar/Cafe, 8=Beach, 9=Nature, 6=Entertainment
+  // Category IDs: 1=Otel, 2=Restoran, 3=Turistik Yer, 5=Ulaşım, 9=Doğa
 
   // --- Trip 1: Tokyo & Kyoto ---
   const trip1 = insertTrip.run(adminId, 'Tokyo & Kyoto', 'Two weeks in Japan — from the neon-lit streets of Tokyo to the serene temples of Kyoto.', '2026-04-15', '2026-04-21', 'JPY');
@@ -166,10 +166,10 @@ function seedExampleTrips(db: Database.Database, adminId: number, demoId: number
     [t2, 'Sagrada Familia', 41.4036, 2.1744, 'C/ de Mallorca, 401, 08013 Barcelona, Spain', 3, '10:00', 120, 'Gaudi\'s masterpiece. Book tickets online in advance — sells out fast!', null, 'ChIJk_s92NyipBIRUMnDG8Kq2Js', 'https://sagradafamilia.org/', '+34 932 08 04 14'],
     [t2, 'Park Guell', 41.4145, 2.1527, '08024 Barcelona, Spain', 3, '09:00', 90, 'Mosaic terrace with city views. Book early for the Monumental Zone.', null, 'ChIJ4eQMeOmipBIRb65JRUzGE8k', 'https://parkguell.barcelona/', '+34 934 09 18 31'],
     [t2, 'La Boqueria Market', 41.3816, 2.1717, 'La Rambla, 91, 08001 Barcelona, Spain', 2, '12:00', 75, 'Famous market on La Rambla. Fresh juice, jamon iberico, and seafood!', null, 'ChIJB_RfKcuipBIRkPKW7MzVGKg', 'http://www.boqueria.barcelona/', '+34 933 18 25 84'],
-    [t2, 'Barceloneta Beach', 41.3784, 2.1925, 'Passeig Maritim de la Barceloneta, 08003 Barcelona, Spain', 8, '16:00', 120, 'City beach to unwind after sightseeing. Great chiringuitos nearby.', null, 'ChIJAQCl79-ipBIRUKF3myrMYkM', null, null],
+    [t2, 'Barceloneta Beach', 41.3784, 2.1925, 'Passeig Maritim de la Barceloneta, 08003 Barcelona, Spain', 9, '16:00', 120, 'City beach to unwind after sightseeing. Great chiringuitos nearby.', null, 'ChIJAQCl79-ipBIRUKF3myrMYkM', null, null],
     [t2, 'Gothic Quarter', 41.3834, 2.1762, 'Barri Gotic, 08002 Barcelona, Spain', 3, '15:00', 90, 'Medieval lanes, the cathedral, and Placa Reial. Get lost in the alleys!', null, 'ChIJ4_xkvv2ipBIRrK3bdd-lHgo', null, null],
     [t2, 'Casa Batllo', 41.3916, 2.1650, 'Passeig de Gracia, 43, 08007 Barcelona, Spain', 3, '11:00', 75, 'Gaudi\'s dragon house. The facade alone is worth the visit.', null, 'ChIJ-2VKIcaipBIRKK63H5PYjqQ', 'https://www.casabatllo.es/', '+34 932 16 03 06'],
-    [t2, 'El Born & Tapas', 41.3856, 2.1825, 'El Born, 08003 Barcelona, Spain', 7, '20:00', 120, 'Trendy neighborhood with the best tapas bars. Try Cal Pep or El Xampanyet!', null, 'ChIJNY56dxuipBIRbqjSczmLvIA', null, null],
+    [t2, 'El Born & Tapas', 41.3856, 2.1825, 'El Born, 08003 Barcelona, Spain', 2, '20:00', 120, 'Trendy neighborhood with the best tapas bars. Try Cal Pep or El Xampanyet!', null, 'ChIJNY56dxuipBIRbqjSczmLvIA', null, null],
   ];
 
   const t2pIds = t2places.map(p => Number(insertPlace.run(...p).lastInsertRowid));

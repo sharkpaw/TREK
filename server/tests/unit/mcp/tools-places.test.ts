@@ -43,7 +43,7 @@ vi.mock('../../../src/services/mapsService', () => ({ searchPlaces: searchPlaces
 import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
 import { resetTestDb } from '../../helpers/test-db';
-import { createUser, createTrip, createPlace, createDay } from '../../helpers/factories';
+import { createUser, createAdmin, createTrip, createPlace, createDay, createCategory } from '../../helpers/factories';
 import { createMcpHarness, parseToolResult, type McpHarness } from '../../helpers/mcp-harness';
 
 beforeAll(() => {
@@ -262,6 +262,84 @@ describe('Tool: list_categories', () => {
       expect(cat).toHaveProperty('name');
       expect(cat).toHaveProperty('color');
       expect(cat).toHaveProperty('icon');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// create_category / update_category / delete_category
+// ---------------------------------------------------------------------------
+
+describe('Tool: create_category', () => {
+  it('creates a category as admin', async () => {
+    const { user: admin } = createAdmin(testDb);
+    await withHarness(admin.id, async (h) => {
+      const result = await h.client.callTool({
+        name: 'create_category',
+        arguments: { name: 'Cami', icon: '🕌', color: '#059669' },
+      });
+      const data = parseToolResult(result) as any;
+      expect(data.category.name).toBe('Cami');
+      expect(data.category.icon).toBe('🕌');
+      expect(data.category.color).toBe('#059669');
+    });
+  });
+
+  it('denies non-admin users', async () => {
+    const { user } = createUser(testDb);
+    await withHarness(user.id, async (h) => {
+      const result = await h.client.callTool({ name: 'create_category', arguments: { name: 'Cami' } });
+      expect(result.isError).toBe(true);
+    });
+  });
+});
+
+describe('Tool: update_category', () => {
+  it('updates a category as admin', async () => {
+    const { user: admin } = createAdmin(testDb);
+    const cat = testDb.prepare('SELECT id FROM categories LIMIT 1').get() as { id: number };
+    await withHarness(admin.id, async (h) => {
+      const result = await h.client.callTool({
+        name: 'update_category',
+        arguments: { categoryId: cat.id, name: 'Kilise', icon: '⛪' },
+      });
+      const data = parseToolResult(result) as any;
+      expect(data.category.name).toBe('Kilise');
+      expect(data.category.icon).toBe('⛪');
+    });
+  });
+
+  it('returns not found for missing category', async () => {
+    const { user: admin } = createAdmin(testDb);
+    await withHarness(admin.id, async (h) => {
+      const result = await h.client.callTool({
+        name: 'update_category',
+        arguments: { categoryId: 99999, name: 'Missing' },
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+});
+
+describe('Tool: delete_category', () => {
+  it('deletes a category as admin', async () => {
+    const { user: admin } = createAdmin(testDb);
+    const cat = createCategory(testDb, { name: 'Temp', user_id: admin.id });
+
+    await withHarness(admin.id, async (h) => {
+      const result = await h.client.callTool({ name: 'delete_category', arguments: { categoryId: cat.id } });
+      const data = parseToolResult(result) as any;
+      expect(data.success).toBe(true);
+      expect(testDb.prepare('SELECT id FROM categories WHERE id = ?').get(cat.id)).toBeUndefined();
+    });
+  });
+
+  it('denies non-admin users', async () => {
+    const { user } = createUser(testDb);
+    const cat = testDb.prepare('SELECT id FROM categories LIMIT 1').get() as { id: number };
+    await withHarness(user.id, async (h) => {
+      const result = await h.client.callTool({ name: 'delete_category', arguments: { categoryId: cat.id } });
+      expect(result.isError).toBe(true);
     });
   });
 });

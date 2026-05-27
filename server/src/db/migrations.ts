@@ -2265,6 +2265,25 @@ function runMigrations(db: Database.Database): void {
         if (!err.message?.includes('no such table')) throw err;
       }
     },
+    // Turkish default place category names (IDs unchanged for existing place references)
+    () => {
+      const turkishCategories: [number, string, string, string][] = [
+        [1, 'Otel', '🏨', '#3b82f6'],
+        [2, 'Restoran', '🍽️', '#ef4444'],
+        [3, 'Turistik Yer', '🏛️', '#8b5cf6'],
+        [4, 'Çarşı', '🛍️', '#f59e0b'],
+        [5, 'Ulaşım', '🚌', '#6b7280'],
+        [6, 'Namaz', '🕌', '#10b981'],
+        [7, 'Cami', '🕌', '#059669'],
+        [8, 'Kilise', '⛪', '#7c3aed'],
+        [9, 'Doğa', '🌿', '#84cc16'],
+        [10, 'Müze', '🏛️', '#6366f1'],
+      ];
+      const update = db.prepare('UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?');
+      for (const [id, name, icon, color] of turkishCategories) {
+        update.run(name, icon, color, id);
+      }
+    },
   ];
 
   if (currentVersion < migrations.length) {

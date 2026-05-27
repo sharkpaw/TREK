@@ -103,16 +103,16 @@ const RESET_TABLES = [
 ];
 
 const DEFAULT_CATEGORIES = [
-  { name: 'Hotel', color: '#3b82f6', icon: '🏨' },
-  { name: 'Restaurant', color: '#ef4444', icon: '🍽️' },
-  { name: 'Attraction', color: '#8b5cf6', icon: '🏛️' },
-  { name: 'Shopping', color: '#f59e0b', icon: '🛍️' },
-  { name: 'Transport', color: '#6b7280', icon: '🚌' },
-  { name: 'Activity', color: '#10b981', icon: '🎯' },
-  { name: 'Bar/Cafe', color: '#f97316', icon: '☕' },
-  { name: 'Beach', color: '#06b6d4', icon: '🏖️' },
-  { name: 'Nature', color: '#84cc16', icon: '🌿' },
-  { name: 'Other', color: '#6366f1', icon: '📍' },
+  { name: 'Otel', color: '#3b82f6', icon: '🏨' },
+  { name: 'Restoran', color: '#ef4444', icon: '🍽️' },
+  { name: 'Turistik Yer', color: '#8b5cf6', icon: '🏛️' },
+  { name: 'Çarşı', color: '#f59e0b', icon: '🛍️' },
+  { name: 'Ulaşım', color: '#6b7280', icon: '🚌' },
+  { name: 'Namaz', color: '#10b981', icon: '🕌' },
+  { name: 'Cami', color: '#059669', icon: '🕌' },
+  { name: 'Kilise', color: '#7c3aed', icon: '⛪' },
+  { name: 'Doğa', color: '#84cc16', icon: '🌿' },
+  { name: 'Müze', color: '#6366f1', icon: '🏛️' },
 ];
 
 const DEFAULT_ADDONS = [

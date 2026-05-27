@@ -5,7 +5,7 @@ import { isDemoUser } from '../../services/authService';
 import { deletePlacesMany, importGoogleList, importNaverList, listPlaces, createPlace, updatePlace, deletePlace } from '../../services/placeService';
 import { createAssignment, dayExists } from '../../services/assignmentService';
 import { onPlaceDeleted } from '../../services/journeyService';
-import { listCategories } from '../../services/categoryService';
+import { listCategories, createCategory, updateCategory, deleteCategory, getCategoryById } from '../../services/categoryService';
 import { searchPlaces } from '../../services/mapsService';
 import {
   safeBroadcast, TOOL_ANNOTATIONS_READONLY, TOOL_ANNOTATIONS_WRITE,
@@ -13,6 +13,15 @@ import {
   demoDenied, noAccess, ok,
 } from './_shared';
 import { canRead, canWrite } from '../scopes';
+
+function adminCategoryDenied(userId: number) {
+  if (isDemoUser(userId)) return demoDenied();
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | undefined;
+  if (user?.role !== 'admin') {
+    return { content: [{ type: 'text' as const, text: 'Admin access required.' }], isError: true };
+  }
+  return null;
+}
 
 export function registerPlaceTools(server: McpServer, userId: number, scopes: string[] | null): void {
   const R = canRead(scopes, 'places');
@@ -184,6 +193,68 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
     async () => {
       const categories = listCategories();
       return ok({ categories });
+    }
+  );
+
+  if (W) server.registerTool(
+    'create_category',
+    {
+      description: 'Create a new global place category. Admin only.',
+      inputSchema: {
+        name: z.string().min(1).max(100),
+        icon: z.string().max(10).optional(),
+        color: z.string().max(20).optional(),
+      },
+      annotations: TOOL_ANNOTATIONS_NON_IDEMPOTENT,
+    },
+    async ({ name, icon, color }) => {
+      const denied = adminCategoryDenied(userId);
+      if (denied) return denied;
+      const category = createCategory(userId, name, color, icon);
+      return ok({ category });
+    }
+  );
+
+  if (W) server.registerTool(
+    'update_category',
+    {
+      description: 'Update a global place category name, icon or color. Admin only.',
+      inputSchema: {
+        categoryId: z.number().int().positive(),
+        name: z.string().min(1).max(100).optional(),
+        icon: z.string().max(10).optional(),
+        color: z.string().max(20).optional(),
+      },
+      annotations: TOOL_ANNOTATIONS_WRITE,
+    },
+    async ({ categoryId, name, icon, color }) => {
+      const denied = adminCategoryDenied(userId);
+      if (denied) return denied;
+      if (!getCategoryById(categoryId)) {
+        return { content: [{ type: 'text' as const, text: 'Category not found.' }], isError: true };
+      }
+      const category = updateCategory(categoryId, name, color, icon);
+      return ok({ category });
+    }
+  );
+
+  if (W) server.registerTool(
+    'delete_category',
+    {
+      description: 'Delete a global place category. Places using it will have their category cleared. Admin only.',
+      inputSchema: {
+        categoryId: z.number().int().positive(),
+      },
+      annotations: TOOL_ANNOTATIONS_DELETE,
+    },
+    async ({ categoryId }) => {
+      const denied = adminCategoryDenied(userId);
+      if (denied) return denied;
+      if (!getCategoryById(categoryId)) {
+        return { content: [{ type: 'text' as const, text: 'Category not found.' }], isError: true };
+      }
+      deleteCategory(categoryId);
+      return ok({ success: true });
     }
   );
 
