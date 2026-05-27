@@ -6,6 +6,7 @@ import {
   MAP_CLUSTER_MAX_ZOOM,
   MAP_CLUSTER_MIN_POINTS,
   MAP_CLUSTER_RADIUS,
+  MAP_MARKER_MIN_ZOOM,
   placesToClusterGeoJSON,
 } from './mapClusterConfig'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -185,10 +186,12 @@ function attachMarkerInteractions(
 ) {
   el.onmousedown = (ev) => {
     if (ev.button !== 0) return
+    ev.stopPropagation()
     onDismissHover()
   }
   el.onclick = (ev) => {
     ev.stopPropagation()
+    ev.preventDefault()
     onDismissHover()
     onMarkerClick?.(place.id)
   }
@@ -234,7 +237,9 @@ export function MapViewGL({
     language,
     clearAllHover,
     scheduleClusterHover,
+    showClusterPicker,
     clearClusterHover,
+    clusterPinnedRef,
   } = useMapPlaceHover(photoUrls)
   const markerMetaRef = useRef<Map<number, MarkerMeta>>(new Map())
   const hoverCleanupRef = useRef<Map<number, () => void>>(new Map())
@@ -257,6 +262,19 @@ export function MapViewGL({
   onClickRefs.current.marker = onMarkerClick
   onClickRefs.current.map = onMapClick
   onClickRefs.current.context = onMapContextMenu
+
+  const openPlaceFromMapRef = useRef((placeId: number) => {
+    const place = placesByIdRef.current.get(placeId)
+    const map = mapRef.current
+    if (map && place?.lat != null && place?.lng != null) {
+      map.flyTo({
+        center: [place.lng, place.lat],
+        zoom: Math.max(map.getZoom(), MAP_MARKER_MIN_ZOOM + 0.5),
+        duration: 400,
+      })
+    }
+    onClickRefs.current.marker?.(placeId)
+  })
 
   useEffect(() => {
     placesByIdRef.current = new Map(places.map(p => [p.id, p as MapHoverPlace]))
@@ -380,7 +398,8 @@ export function MapViewGL({
 
     map.on('click', (e) => {
       const t = e.originalEvent.target as HTMLElement
-      if (t.closest('.mapboxgl-marker')) return // markers handle their own click
+      if (t.closest('.mapboxgl-marker')) return
+      if (t.closest('[data-testid="map-cluster-hover-preview"]')) return
       clearAllHoverRef.current()
       onClickRefs.current.map?.({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng } })
     })
@@ -519,23 +538,25 @@ export function MapViewGL({
     }
   }, [placeIds, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cluster geojson + layer visibility (zoom < MAP_CLUSTER_MAX_ZOOM → clusters)
+  // Cluster geojson + layer visibility (zoom < MAP_MARKER_MIN_ZOOM → clusters)
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
     const src = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource | undefined
     src?.setData(placesToClusterGeoJSON(places))
-    const showClusters = map.getZoom() < MAP_CLUSTER_MAX_ZOOM
+    const showClusters = map.getZoom() < MAP_MARKER_MIN_ZOOM
     const vis = showClusters ? 'visible' : 'none'
     if (map.getLayer('trip-clusters')) map.setLayoutProperty('trip-clusters', 'visibility', vis)
     if (map.getLayer('trip-cluster-count')) map.setLayoutProperty('trip-cluster-count', 'visibility', vis)
   }, [places, mapReady, zoomRev])
 
   const scheduleClusterHoverRef = useRef(scheduleClusterHover)
+  const showClusterPickerRef = useRef(showClusterPicker)
   const clearClusterHoverRef = useRef(clearClusterHover)
   const lastClusterPlacesRef = useRef<MapHoverPlace[]>([])
   const clusterHoverGenRef = useRef(0)
   scheduleClusterHoverRef.current = scheduleClusterHover
+  showClusterPickerRef.current = showClusterPicker
   clearClusterHoverRef.current = clearClusterHover
 
   useEffect(() => {
@@ -562,33 +583,39 @@ export function MapViewGL({
 
     const onClusterClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
       e.preventDefault()
+      e.originalEvent?.stopPropagation()
       clusterHoverGenRef.current += 1
-      clearAllHoverRef.current()
-      const features = map.queryRenderedFeatures(e.point, { layers: ['trip-clusters'] })
+      const features = map.queryRenderedFeatures(e.point, { layers: ['trip-clusters', 'trip-cluster-count'] })
       const clusterId = features[0]?.properties?.cluster_id as number | undefined
       if (clusterId == null) return
       const source = map.getSource('trip-places-cluster') as mapboxgl.GeoJSONSource
       source.getClusterLeaves(clusterId, 100, 0, (err, leaves) => {
         if (err || !leaves?.length) return
+        const clusterPlaces: MapHoverPlace[] = []
+        for (const leaf of leaves) {
+          const id = leaf.properties?.placeId as number | undefined
+          if (id == null) continue
+          const place = placesByIdRef.current.get(id)
+          if (place) clusterPlaces.push(place)
+        }
+        if (clusterPlaces.length === 0) return
+        showClusterPickerRef.current(
+          clusterPlaces,
+          e.originalEvent.clientX,
+          e.originalEvent.clientY,
+        )
         const bounds = new mapboxgl.LngLatBounds()
         for (const leaf of leaves) {
           const c = (leaf.geometry as GeoJSON.Point).coordinates as [number, number]
           bounds.extend(c)
         }
-        const leafCount = leaves.length
-        source.getClusterExpansionZoom(clusterId, (expErr, expZoom) => {
-          const current = map.getZoom()
-          const maxZoom = leafCount <= 20
-            ? MAP_CLUSTER_MAX_ZOOM + 0.5
-            : Math.min(
-              Math.max(expZoom ?? current + 2, current + 2.5),
-              MAP_CLUSTER_MAX_ZOOM - 0.5,
-            )
-          map.fitBounds(bounds, {
-            padding: 56,
-            maxZoom: expErr ? MAP_CLUSTER_MAX_ZOOM + 0.5 : maxZoom,
-            duration: 450,
-          })
+        const targetZoom = clusterPlaces.length <= 12
+          ? MAP_CLUSTER_MAX_ZOOM + 1
+          : Math.max(map.getZoom() + 1.5, MAP_MARKER_MIN_ZOOM)
+        map.flyTo({
+          center: bounds.getCenter(),
+          zoom: Math.min(targetZoom, MAP_CLUSTER_MAX_ZOOM + 1),
+          duration: 450,
         })
       })
     }
@@ -617,16 +644,18 @@ export function MapViewGL({
     const onClusterLeave = () => {
       map.getCanvas().style.cursor = ''
       lastClusterPlacesRef.current = []
-      clearClusterHoverRef.current()
+      if (!clusterPinnedRef.current) clearClusterHoverRef.current()
     }
 
     map.on('click', 'trip-clusters', onClusterClick)
+    map.on('click', 'trip-cluster-count', onClusterClick)
     map.on('mouseenter', 'trip-clusters', onClusterEnter)
     map.on('mousemove', 'trip-clusters', onClusterMove)
     map.on('mouseleave', 'trip-clusters', onClusterLeave)
 
     return () => {
       map.off('click', 'trip-clusters', onClusterClick)
+      map.off('click', 'trip-cluster-count', onClusterClick)
       map.off('mouseenter', 'trip-clusters', onClusterEnter)
       map.off('mousemove', 'trip-clusters', onClusterMove)
       map.off('mouseleave', 'trip-clusters', onClusterLeave)
@@ -639,7 +668,7 @@ export function MapViewGL({
     const map = mapRef.current
     if (!map) return
 
-    if (map.getZoom() < MAP_CLUSTER_MAX_ZOOM) {
+    if (map.getZoom() < MAP_MARKER_MIN_ZOOM) {
       markersRef.current.forEach((marker, id) => {
         hoverCleanupRef.current.get(id)?.()
         hoverCleanupRef.current.delete(id)
@@ -698,7 +727,7 @@ export function MapViewGL({
         orderNumbers,
         selected,
       )
-      attachMarkerInteractions(el, hoverPlace, onClickRefs.current.marker, bindMarkerHover, hoverCleanupRef, () => clearAllHoverRef.current())
+      attachMarkerInteractions(el, hoverPlace, id => openPlaceFromMapRef.current(id), bindMarkerHover, hoverCleanupRef, () => clearAllHoverRef.current())
       if (existing) existing.remove()
       const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([place.lng, place.lat])
@@ -934,8 +963,17 @@ export function MapViewGL({
           x={clusterHover.x}
           y={clusterHover.y}
           onPlaceClick={(id) => {
+            const place = placesByIdRef.current.get(id)
+            const map = mapRef.current
+            if (map && place?.lat != null && place?.lng != null) {
+              map.flyTo({
+                center: [place.lng, place.lat],
+                zoom: Math.max(map.getZoom(), MAP_MARKER_MIN_ZOOM + 0.5),
+                duration: 400,
+              })
+            }
             clearAllHover()
-            onMarkerClick?.(id)
+            openPlaceFromMapRef.current(id)
           }}
         />
       )}

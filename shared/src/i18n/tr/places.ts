@@ -58,6 +58,7 @@ const places: TranslationStrings = {
   'places.addFirstTag': 'Etiket ekle',
   'places.mapHoverHint': 'Önizleme için bekleyin',
   'places.clusterHoverCount': 'Bu alanda {count} yer',
+  'places.clusterHoverHint': 'detay için seç',
   'places.clearFilter': 'Filtreyi temizle',
   'places.count': '{count} yer',
   'places.countSingular': '1 yer',

@@ -5,6 +5,8 @@ import type { Place } from '../../types'
  * Higher value = stay grouped longer while zooming in (fewer tiny clusters).
  */
 export const MAP_CLUSTER_MAX_ZOOM = 17
+/** HTML markers visible at this zoom; clusters hidden below. */
+export const MAP_MARKER_MIN_ZOOM = MAP_CLUSTER_MAX_ZOOM - 1
 /** Default cluster merge radius in px (Mapbox `clusterRadius`). */
 export const MAP_CLUSTER_RADIUS = 100
 /** Mapbox: minimum points required to form a cluster (reduces tiny pairs). */

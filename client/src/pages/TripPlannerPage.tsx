@@ -455,14 +455,9 @@ export default function TripPlannerPage(): React.ReactElement | null {
     const matching = allAssignments.filter(a => a?.place?.id === placeId)
 
     if (matching.length === 0) {
-      setSelectedPlaceId(prev => prev === placeId ? null : placeId)
+      setSelectedPlaceId(placeId)
     } else if (matching.length === 1) {
-      const only = matching[0]
-      if (selectedAssignmentId === only.id) {
-        setSelectedPlaceId(null)
-      } else {
-        selectAssignment(only.id, placeId)
-      }
+      selectAssignment(matching[0].id, placeId)
     } else {
       const currentIdx = matching.findIndex(a => a.id === selectedAssignmentId)
       const nextIdx = currentIdx === -1 ? 0 : currentIdx + 1

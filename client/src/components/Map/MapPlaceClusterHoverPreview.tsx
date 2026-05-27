@@ -51,6 +51,9 @@ export default function MapPlaceClusterHoverPreview({
         color: 'var(--text-muted, #6b7280)',
       }}>
         {t('places.clusterHoverCount', { count: places.length })}
+        {onPlaceClick && (
+          <span style={{ fontWeight: 400, opacity: 0.75 }}> · {t('places.clusterHoverHint')}</span>
+        )}
       </div>
       <div style={{ maxHeight: listMaxH, overflowY: 'auto', overscrollBehavior: 'contain' }}>
         {places.map(place => {

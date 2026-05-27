@@ -54,6 +54,7 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
   const pendingHoverRef = useRef<{ place: MapHoverPlace; x: number; y: number } | null>(null)
   const pendingClusterRef = useRef<{ places: MapHoverPlace[]; x: number; y: number } | null>(null)
   const clusterLockedRef = useRef(false)
+  const clusterPinnedRef = useRef(false)
   const photoUrlsRef = useRef(photoUrls)
   photoUrlsRef.current = photoUrls
 
@@ -80,9 +81,21 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
   const clearClusterHover = useCallback(() => {
     pendingClusterRef.current = null
     clusterLockedRef.current = false
+    clusterPinnedRef.current = false
     clearClusterTimer()
     setClusterHover(null)
   }, [clearClusterTimer])
+
+  /** Click on cluster — show list immediately and keep open until place pick or outside click. */
+  const showClusterPicker = useCallback((places: MapHoverPlace[], x: number, y: number) => {
+    if (places.length === 0) return
+    clearHoverPreview()
+    clearClusterTimer()
+    pendingClusterRef.current = { places, x, y }
+    clusterLockedRef.current = true
+    clusterPinnedRef.current = true
+    setClusterHover({ places, x, y })
+  }, [clearHoverPreview, clearClusterTimer])
 
   const clearAllHover = useCallback(() => {
     clearHoverPreview()
@@ -112,7 +125,7 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
   const scheduleClusterHover = useCallback((places: MapHoverPlace[], x: number, y: number) => {
     if (places.length === 0) return
     clearHoverPreview()
-    if (clusterLockedRef.current) return
+    if (clusterPinnedRef.current || clusterLockedRef.current) return
     pendingClusterRef.current = { places, x, y }
     clearClusterTimer()
     clusterTimerRef.current = setTimeout(() => {
@@ -176,5 +189,7 @@ export function useMapPlaceHover(photoUrls: Record<string, string>) {
     clearAllHover,
     scheduleClusterHover,
     scheduleHoverPreview,
+    showClusterPicker,
+    clusterPinnedRef,
   }
 }
