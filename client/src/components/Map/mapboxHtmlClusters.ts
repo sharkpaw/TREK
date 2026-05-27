@@ -6,6 +6,7 @@ import {
   createClusterMarkerElement,
   placesToClusterGeoJSON,
   shouldShowMapClusters,
+  spiderfyLngLatPositions,
   updateClusterMarkerElement,
 } from './mapClusterConfig'
 import type { Place } from '../../types'
@@ -68,6 +69,53 @@ function dedupeByClusterId(
   return [...byId.values()]
 }
 
+type PlaceCoordLookup = Map<number, { lat?: number | null; lng?: number | null }>
+
+export function centroidFromClusterLeaves(
+  leaves: mapboxgl.MapboxGeoJSONFeature[],
+  placesById?: PlaceCoordLookup,
+): [number, number] | null {
+  if (leaves.length === 0) return null
+  let lng = 0
+  let lat = 0
+  let n = 0
+  for (const leaf of leaves) {
+    const id = leaf.properties?.placeId as number | undefined
+    const place = id != null ? placesById?.get(id) : undefined
+    if (place?.lat != null && place?.lng != null) {
+      lng += place.lng
+      lat += place.lat
+    } else {
+      const c = (leaf.geometry as GeoJSON.Point).coordinates
+      lng += c[0]
+      lat += c[1]
+    }
+    n++
+  }
+  if (n === 0) return null
+  return [lng / n, lat / n]
+}
+
+export function spiderfyPlacePositions(
+  items: Array<{ id: number; lng: number; lat: number }>,
+): Map<number, [number, number]> {
+  const positions = new Map<number, [number, number]>()
+  if (items.length === 0) return positions
+  let lng = 0
+  let lat = 0
+  for (const item of items) {
+    lng += item.lng
+    lat += item.lat
+  }
+  lng /= items.length
+  lat /= items.length
+  const offsets = spiderfyLngLatPositions(items.length, lng, lat)
+  items.forEach((item, i) => {
+    if (offsets[i]) positions.set(item.id, offsets[i])
+  })
+  return positions
+}
+
 export function getUnclusteredPlaceIds(map: mapboxgl.Map): Set<number> {
   const features = map.querySourceFeatures(CLUSTER_SOURCE_ID, {
     filter: ['!', ['has', 'point_count']],
@@ -125,11 +173,47 @@ export type ClusterMarkerHandlers = {
   onMouseLeave: () => void
 }
 
-export function syncHtmlClusterMarkers(
+function upsertClusterMarker(
   map: mapboxgl.Map,
   clusterMarkersRef: Map<number, mapboxgl.Marker>,
   handlers: ClusterMarkerHandlers,
+  clusterId: number,
+  count: number,
+  coords: [number, number],
 ): void {
+  let marker = clusterMarkersRef.get(clusterId)
+  if (!marker) {
+    const el = createClusterMarkerElement(count)
+    el.onmousedown = ev => {
+      if (ev.button !== 0) return
+      ev.stopPropagation()
+    }
+    el.onclick = ev => {
+      ev.stopPropagation()
+      ev.preventDefault()
+      handlers.onClick(clusterId, count, coords, ev)
+    }
+    el.onmouseenter = ev => handlers.onMouseEnter(clusterId, ev)
+    el.onmousemove = ev => handlers.onMouseMove(ev)
+    el.onmouseleave = () => handlers.onMouseLeave()
+    marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat(coords)
+      .addTo(map)
+    clusterMarkersRef.set(clusterId, marker)
+  } else {
+    marker.setLngLat(coords)
+    const el = marker.getElement()
+    if (el) updateClusterMarkerElement(el, count)
+  }
+}
+
+export async function syncHtmlClusterMarkers(
+  map: mapboxgl.Map,
+  clusterMarkersRef: Map<number, mapboxgl.Marker>,
+  handlers: ClusterMarkerHandlers,
+  placesById: PlaceCoordLookup,
+  isStale: () => boolean,
+): Promise<void> {
   if (!shouldShowMapClusters(map.getZoom())) {
     clusterMarkersRef.forEach(m => m.remove())
     clusterMarkersRef.clear()
@@ -143,36 +227,17 @@ export function syncHtmlClusterMarkers(
   const active = new Set<number>()
 
   for (const f of features) {
+    if (isStale()) return
     const clusterId = f.properties?.cluster_id as number | undefined
     const count = f.properties?.point_count as number | undefined
     if (clusterId == null || count == null) continue
     active.add(clusterId)
-    const coords = (f.geometry as GeoJSON.Point).coordinates as [number, number]
+    const fallback = (f.geometry as GeoJSON.Point).coordinates as [number, number]
 
-    let marker = clusterMarkersRef.get(clusterId)
-    if (!marker) {
-      const el = createClusterMarkerElement(count)
-      el.onmousedown = ev => {
-        if (ev.button !== 0) return
-        ev.stopPropagation()
-      }
-      el.onclick = ev => {
-        ev.stopPropagation()
-        ev.preventDefault()
-        handlers.onClick(clusterId, count, coords, ev)
-      }
-      el.onmouseenter = ev => handlers.onMouseEnter(clusterId, ev)
-      el.onmousemove = ev => handlers.onMouseMove(ev)
-      el.onmouseleave = () => handlers.onMouseLeave()
-      marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat(coords)
-        .addTo(map)
-      clusterMarkersRef.set(clusterId, marker)
-    } else {
-      marker.setLngLat(coords)
-      const el = marker.getElement()
-      if (el) updateClusterMarkerElement(el, count)
-    }
+    const leaves = await clusterLeaves(map, clusterId, Math.max(count, 1))
+    if (isStale()) return
+    const centroid = centroidFromClusterLeaves(leaves, placesById) ?? fallback
+    upsertClusterMarker(map, clusterMarkersRef, handlers, clusterId, count, centroid)
   }
 
   clusterMarkersRef.forEach((marker, id) => {
@@ -228,7 +293,7 @@ export function fitClusterBounds(
   }
   map.fitBounds(bounds, {
     padding: 60,
-    maxZoom: MAP_CLUSTER_MAX_ZOOM - 1,
+    maxZoom: MAP_CLUSTER_MAX_ZOOM + 0.5,
     duration: 450,
   })
 }

@@ -4,18 +4,19 @@ import { useMapPlaceHover, type MapHoverPlace } from './useMapPlaceHover'
 import MapPlaceClusterHoverPreview from './MapPlaceClusterHoverPreview'
 import {
   MAP_CLUSTER_SOURCE_MAX_ZOOM,
-  MAP_MARKER_MIN_ZOOM,
   clusterRadiusForZoom,
-  spiderfyLngLatPositions,
+  placeFocusZoom,
 } from './mapClusterConfig'
 import {
   CLUSTER_SOURCE_ID,
+  centroidFromClusterLeaves,
   clusterExpansionZoom,
   clusterLeaves,
   ensureClusterSource,
   fitClusterBounds,
   rebuildClusterSource,
   resolveVisiblePlaceMarkers,
+  spiderfyPlacePositions,
   syncHtmlClusterMarkers,
   type SpiderfyState,
 } from './mapboxHtmlClusters'
@@ -265,6 +266,7 @@ export function MapViewGL({
   const clusterRadiusAppliedRef = useRef<number | null>(null)
   const spiderfyRef = useRef<SpiderfyState | null>(null)
   const spiderfyZoomRef = useRef<number | null>(null)
+  const clusterSyncGenRef = useRef(0)
   const locationMarkerRef = useRef<LocationMarkerHandle | null>(null)
   const reservationOverlayRef = useRef<ReservationMapboxOverlay | null>(null)
   // Refs so the reservation overlay always sees the latest callback /
@@ -277,22 +279,32 @@ export function MapViewGL({
   onClickRefs.current.map = onMapClick
   onClickRefs.current.context = onMapContextMenu
 
+  const focusMapOnPlaceRef = useRef<(placeId: number) => void>(() => {})
   const openPlaceFromMapRef = useRef((placeId: number) => {
-    const place = placesByIdRef.current.get(placeId)
-    const map = mapRef.current
-    if (map && place?.lat != null && place?.lng != null) {
-      map.flyTo({
-        center: [place.lng, place.lat],
-        zoom: Math.max(map.getZoom(), MAP_MARKER_MIN_ZOOM + 0.5),
-        duration: 400,
-      })
-    }
+    focusMapOnPlaceRef.current(placeId)
     onClickRefs.current.marker?.(placeId)
   })
 
   useEffect(() => {
     placesByIdRef.current = new Map(places.map(p => [p.id, p as MapHoverPlace]))
   }, [places])
+
+  focusMapOnPlaceRef.current = (placeId: number) => {
+    const place = placesByIdRef.current.get(placeId)
+    const map = mapRef.current
+    if (!map || place?.lat == null || place?.lng == null) return
+    spiderfyRef.current = null
+    spiderfyZoomRef.current = null
+    const marker = markersRef.current.get(placeId)
+    if (marker) marker.setLngLat([place.lng, place.lat])
+    map.flyTo({
+      center: [place.lng, place.lat],
+      zoom: placeFocusZoom(map.getZoom()),
+      pitch: mapbox3d ? 45 : 0,
+      duration: 400,
+    })
+    setZoomRev(z => z + 1)
+  }
 
   // Build/rebuild the map on style/token/3d change
   useEffect(() => {
@@ -429,42 +441,10 @@ export function MapViewGL({
       setTrackingMode(prev => prev === 'follow' ? 'show' : prev)
     })
 
-    // Keep HTML markers glued to the terrain / 3D ground. Mapbox projects
-    // HTML markers at altitude=0 (sea level) by default, so as soon as the
-    // style has a terrain DEM (Standard, Standard Satellite, custom terrain)
-    // the markers drift off the places when the camera pitches or zooms —
-    // the buildings rise from DEM height, the marker stays at sea level,
-    // and the pixel offset grows as the perspective changes.
-    //
-    // Pushing `[lng, lat, elevation]` through setLngLat tells mapbox to
-    // project the marker onto the same ground the route line sits on.
-    // We re-apply this every render because DEM tiles stream in async.
-    let lastAltUpdate = 0
-    const syncMarkerAltitudes = () => {
-      const now = performance.now()
-      if (now - lastAltUpdate < 80) return // ~12Hz is plenty
-      lastAltUpdate = now
-      markersRef.current.forEach(marker => {
-        const ll = marker.getLngLat()
-        let alt = 0
-        try {
-          const e = map.queryTerrainElevation([ll.lng, ll.lat])
-          if (typeof e === 'number' && Number.isFinite(e)) alt = e
-        } catch { /* terrain not ready */ }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const curAlt = (ll as any).alt ?? 0
-        if (Math.abs(curAlt - alt) > 0.25) {
-          marker.setLngLat([ll.lng, ll.lat, alt])
-        }
-      })
-    }
-    map.on('render', syncMarkerAltitudes)
-
     return () => {
       map.off('zoom', onZoomChange)
       map.off('zoomend', onZoomChange)
       map.off('moveend', onZoomChange)
-      map.off('render', syncMarkerAltitudes)
       canvas.removeEventListener('mousedown', onAuxDown)
       canvas.removeEventListener('auxclick', onAuxClick)
       markersRef.current.forEach(m => m.remove())
@@ -579,14 +559,22 @@ export function MapViewGL({
       || currentZoom >= MAP_CLUSTER_SOURCE_MAX_ZOOM
 
     if (atClusterMax) {
-      const offsets = spiderfyLngLatPositions(leaves.length, center[0], center[1])
-      const positions = new Map<number, [number, number]>()
-      leaves.forEach((leaf, i) => {
-        const id = leaf.properties?.placeId as number | undefined
-        if (id != null && offsets[i]) positions.set(id, offsets[i])
-      })
-      spiderfyRef.current = { clusterId, positions }
+      const spiderItems = clusterPlaces
+        .filter((p): p is MapHoverPlace & { lat: number; lng: number } => p.lat != null && p.lng != null)
+        .map(p => ({ id: p.id, lng: p.lng, lat: p.lat }))
+      spiderfyRef.current = {
+        clusterId,
+        positions: spiderfyPlacePositions(spiderItems),
+      }
       spiderfyZoomRef.current = currentZoom
+      const centroid = centroidFromClusterLeaves(leaves, placesByIdRef.current)
+      if (centroid) {
+        map.easeTo({
+          center: centroid,
+          zoom: placeFocusZoom(currentZoom),
+          duration: 400,
+        })
+      }
       setZoomRev(z => z + 1)
       return
     }
@@ -616,33 +604,40 @@ export function MapViewGL({
         clusterMarkersRef.current.clear()
         return
       }
-      syncHtmlClusterMarkers(map, clusterMarkersRef.current, {
-        onClick: handleClusterClick,
-        onMouseEnter: (clusterId, ev) => {
-          map.getCanvas().style.cursor = 'pointer'
-          const gen = ++clusterHoverGenRef.current
-          void clusterLeaves(map, clusterId, 50).then(leaves => {
-            if (gen !== clusterHoverGenRef.current) return
-            const clusterPlaces = leavesToHoverPlaces(leaves)
-            if (clusterPlaces.length === 0) return
-            lastClusterPlacesRef.current = clusterPlaces
-            scheduleClusterHoverRef.current(clusterPlaces, ev.clientX, ev.clientY)
-          })
+      const syncGen = ++clusterSyncGenRef.current
+      void syncHtmlClusterMarkers(
+        map,
+        clusterMarkersRef.current,
+        {
+          onClick: handleClusterClick,
+          onMouseEnter: (clusterId, ev) => {
+            map.getCanvas().style.cursor = 'pointer'
+            const gen = ++clusterHoverGenRef.current
+            void clusterLeaves(map, clusterId, 50).then(leaves => {
+              if (gen !== clusterHoverGenRef.current) return
+              const clusterPlaces = leavesToHoverPlaces(leaves)
+              if (clusterPlaces.length === 0) return
+              lastClusterPlacesRef.current = clusterPlaces
+              scheduleClusterHoverRef.current(clusterPlaces, ev.clientX, ev.clientY)
+            })
+          },
+          onMouseMove: ev => {
+            if (lastClusterPlacesRef.current.length === 0) return
+            scheduleClusterHoverRef.current(
+              lastClusterPlacesRef.current,
+              ev.clientX,
+              ev.clientY,
+            )
+          },
+          onMouseLeave: () => {
+            map.getCanvas().style.cursor = ''
+            lastClusterPlacesRef.current = []
+            if (!clusterPinnedRef.current) clearClusterHoverRef.current()
+          },
         },
-        onMouseMove: ev => {
-          if (lastClusterPlacesRef.current.length === 0) return
-          scheduleClusterHoverRef.current(
-            lastClusterPlacesRef.current,
-            ev.clientX,
-            ev.clientY,
-          )
-        },
-        onMouseLeave: () => {
-          map.getCanvas().style.cursor = ''
-          lastClusterPlacesRef.current = []
-          if (!clusterPinnedRef.current) clearClusterHoverRef.current()
-        },
-      })
+        placesByIdRef.current,
+        () => syncGen !== clusterSyncGenRef.current,
+      )
     }
 
     if (map.isStyleLoaded()) runSync()
@@ -876,14 +871,19 @@ export function MapViewGL({
     if (!map || !selectedPlaceId) return
     const target = places.find(p => p.id === selectedPlaceId) || dayPlaces.find(p => p.id === selectedPlaceId)
     if (!target?.lat || !target?.lng) return
+    spiderfyRef.current = null
+    spiderfyZoomRef.current = null
+    const marker = markersRef.current.get(selectedPlaceId)
+    if (marker) marker.setLngLat([target.lng, target.lat])
     try {
       map.flyTo({
         center: [target.lng, target.lat],
-        zoom: Math.max(map.getZoom(), 14),
+        zoom: placeFocusZoom(map.getZoom()),
         pitch: mapbox3d ? 45 : 0,
         duration: 400,
       })
     } catch { /* noop */ }
+    setZoomRev(z => z + 1)
   }, [selectedPlaceId, mapbox3d]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // External center/zoom prop changes — jump without animation
@@ -967,15 +967,6 @@ export function MapViewGL({
           x={clusterHover.x}
           y={clusterHover.y}
           onPlaceClick={(id) => {
-            const place = placesByIdRef.current.get(id)
-            const map = mapRef.current
-            if (map && place?.lat != null && place?.lng != null) {
-              map.flyTo({
-                center: [place.lng, place.lat],
-                zoom: Math.max(map.getZoom(), MAP_MARKER_MIN_ZOOM + 0.5),
-                duration: 400,
-              })
-            }
             clearAllHover()
             openPlaceFromMapRef.current(id)
           }}

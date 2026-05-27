@@ -19,6 +19,13 @@ export function shouldShowMapMarkers(zoom: number): boolean {
   return zoom >= MAP_CLUSTER_MAX_ZOOM
 }
 
+/** Zoom when focusing a single place so its pin is always visible (above cluster threshold). */
+export const MAP_PLACE_FOCUS_ZOOM = MAP_MARKER_MIN_ZOOM + 0.5
+
+export function placeFocusZoom(currentZoom: number): number {
+  return Math.max(currentZoom, MAP_PLACE_FOCUS_ZOOM)
+}
+
 /** Leaflet: radius scales down near uncluster zoom so pins separate cleanly. */
 export function clusterRadiusForZoom(zoom: number): number {
   if (zoom >= MAP_CLUSTER_MAX_ZOOM - 1) return 40
