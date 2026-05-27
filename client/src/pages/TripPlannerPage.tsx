@@ -26,7 +26,7 @@ import BudgetPanel from '../components/Budget/BudgetPanel'
 import CollabPanel from '../components/Collab/CollabPanel'
 import Navbar from '../components/Layout/Navbar'
 import { useToast } from '../components/shared/Toast'
-import { Map, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Ticket, PackageCheck, Wallet, FolderOpen, Users, Train } from 'lucide-react'
+import { Map as MapIcon, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Ticket, PackageCheck, Wallet, FolderOpen, Users, Train } from 'lucide-react'
 import { useTranslation } from '../i18n'
 import { addonsApi, accommodationsApi, authApi, tripsApi, assignmentsApi, mapsApi } from '../api/client'
 import { accommodationRepo } from '../repo/accommodationRepo'
@@ -226,7 +226,7 @@ export default function TripPlannerPage(): React.ReactElement | null {
   const TRANSPORT_TYPES = new Set(['flight', 'train', 'car', 'cruise', 'bus'])
 
   const TRIP_TABS = [
-    { id: 'plan', label: t('trip.tabs.plan'), icon: Map },
+    { id: 'plan', label: t('trip.tabs.plan'), icon: MapIcon },
     { id: 'transports', label: t('trip.tabs.transports'), icon: Train },
     { id: 'buchungen', label: t('trip.tabs.reservations'), shortLabel: t('trip.tabs.reservationsShort'), icon: Ticket },
     ...(enabledAddons.packing ? [{ id: 'listen', label: t('trip.tabs.lists'), shortLabel: t('trip.tabs.listsShort'), icon: PackageCheck }] : []),
