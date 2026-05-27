@@ -2,7 +2,7 @@ services:
   trek:
     build:
       context: .
-      dockerfile: apps/directus/Dockerfile
+      dockerfile: Dockerfile
     container_name: trek
     environment:
       - NODE_ENV=production
