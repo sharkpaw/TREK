@@ -8,6 +8,7 @@ services:
       - SERVICE_URL_TREK_3000
       - NODE_ENV=production
       - JWT_SECRET=$SERVICE_BASE64_64_JWTSECRET
+      - PORT=3000
       - ENCRYPTION_KEY=$SERVICE_BASE64_64_ENCRYPTIONKEY # Recommended. Generate with: openssl rand -hex 32. If unset, falls back to data/.jwt_secret (existing installs) or auto-generates a key (fresh installs).
       - TZ=${TZ:-Europe/Istanbul} # Timezone for logs, reminders and scheduled tasks (e.g. Europe/Berlin)
       - LOG_LEVEL=${LOG_LEVEL:-info} # info = concise user actions; debug = verbose admin-level details
