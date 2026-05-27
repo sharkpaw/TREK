@@ -309,7 +309,12 @@ export function registerPlaceTools(server: McpServer, userId: number, scopes: st
       for (const place of result.places) {
         safeBroadcast(tripId, 'place:created', { place });
       }
-      return ok({ places: result.places, count: result.places.length, listName: result.listName, skipped: result.skipped });
+      return ok({
+        places: result.places,
+        count: result.places.length,
+        listName: result.listName,
+        ...('skipped' in result ? { skipped: result.skipped } : {}),
+      });
     }
   );
 

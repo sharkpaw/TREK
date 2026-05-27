@@ -54,10 +54,11 @@ COPY --from=shared-builder /app/shared/dist ./shared/dist
 COPY --from=client-builder /app/client/dist ./server/public
 COPY --from=client-builder /app/client/public/fonts ./server/public/fonts
 
+# Only chown writable dirs — avoid chown on node_modules (slow/OOM on small build VMs).
 RUN mkdir -p /app/data/logs /app/uploads/files /app/uploads/covers /app/uploads/avatars /app/uploads/photos && \
-    ln -s /app/uploads /app/server/uploads && \
-    ln -s /app/data /app/server/data && \
-    chown -R node:node /app
+    ln -sf /app/uploads /app/server/uploads && \
+    ln -sf /app/data /app/server/data && \
+    chown -R node:node /app/data /app/uploads
 
 ENV NODE_ENV=production
 ENV PORT=3000
