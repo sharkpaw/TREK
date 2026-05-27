@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: "3.0.22"
     environment:
       - SERVICE_URL_TREK_3000
       - NODE_ENV=production
