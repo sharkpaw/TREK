@@ -74,7 +74,12 @@ function createPlaceIcon(place, orderNumbers, isSelected) {
 
   // Prefer base64 data URLs (no zoom lag); also accept same-origin proxy URLs as a fallback
   // while the thumb is still being generated in the background
-  if (place.image_url && (place.image_url.startsWith('data:') || place.image_url.startsWith('/api/maps/place-photo/'))) {
+  if (place.image_url && (
+    place.image_url.startsWith('data:')
+    || place.image_url.startsWith('/api/')
+    || place.image_url.startsWith('http://')
+    || place.image_url.startsWith('https://')
+  )) {
     const imgIcon = L.divIcon({
       className: '',
       html: `<div style="

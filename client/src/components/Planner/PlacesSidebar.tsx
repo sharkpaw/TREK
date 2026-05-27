@@ -410,6 +410,10 @@ const PlacesSidebar = React.memo(function PlacesSidebar({
                 if (!categoryFilters.has('uncategorized')) return false
               } else if (!categoryFilters.has(String(p.category_id))) return false
             }
+            if (tagFilters.size > 0) {
+              const placeTagIds = (p.tags || []).map(t => String(t.id))
+              if (!placeTagIds.some(id => tagFilters.has(id))) return false
+            }
             if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
                 !(p.address || '').toLowerCase().includes(search.toLowerCase())) return false
             return true
@@ -602,17 +606,15 @@ const PlacesSidebar = React.memo(function PlacesSidebar({
           )
         })()}
 
-        {tags.length > 0 && (
-          <TagMultiSelectDropdown
-            tags={tags}
-            selectedIds={tagFilters}
-            onToggle={toggleTagFilter}
-            onClear={() => {
-              setTagFiltersLocal(new Set())
-              onTagFilterChange?.(new Set())
-            }}
-          />
-        )}
+        <TagMultiSelectDropdown
+          tags={tags}
+          selectedIds={tagFilters}
+          onToggle={toggleTagFilter}
+          onClear={() => {
+            setTagFiltersLocal(new Set())
+            onTagFilterChange?.(new Set())
+          }}
+        />
       </div>
 
       {/* Anzahl / Auswahl-Leiste */}

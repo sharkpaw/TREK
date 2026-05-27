@@ -35,8 +35,6 @@ export default function TagMultiSelectDropdown({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
-  if (tags.length === 0) return null
-
   const label = selectedIds.size === 0
     ? t(emptyLabelKey)
     : selectedIds.size === 1
@@ -47,7 +45,8 @@ export default function TagMultiSelectDropdown({
     <div ref={ref} style={{ marginTop: 6, position: 'relative', ...style }}>
       <button
         type="button"
-        onClick={() => setOpen(v => !v)}
+        disabled={tags.length === 0}
+        onClick={() => tags.length > 0 && setOpen(v => !v)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-primary)',

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useMemo, useState, createElement } from 'react'
+import { useEffect, useRef, useMemo, useState, createElement, type RefObject } from 'react'
+import MapPlaceHoverPreview from './MapPlaceHoverPreview'
+import { useMapPlaceHover, type MapHoverPlace } from './useMapPlaceHover'
 import { renderToStaticMarkup } from 'react-dom/server'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -94,7 +96,12 @@ function createMarkerElement(place: Place & { category_color?: string; category_
   // to its stacked slot, not to the map viewport.
   wrap.style.cssText = `width:${outer}px;height:${outer}px;cursor:pointer;`
 
-  const hasPhoto = photoUrl && (photoUrl.startsWith('data:') || photoUrl.startsWith('/api/maps/place-photo/'))
+  const hasPhoto = Boolean(photoUrl && (
+    photoUrl.startsWith('data:')
+    || photoUrl.startsWith('/api/')
+    || photoUrl.startsWith('http://')
+    || photoUrl.startsWith('https://')
+  ))
   if (hasPhoto) {
     wrap.innerHTML = `
       <div style="
@@ -128,6 +135,54 @@ function createMarkerElement(place: Place & { category_color?: string; category_
   return wrap
 }
 
+function isDisplayablePhotoUrl(photoUrl: string | null | undefined): photoUrl is string {
+  if (!photoUrl) return false
+  return photoUrl.startsWith('data:')
+    || photoUrl.startsWith('/api/')
+    || photoUrl.startsWith('http://')
+    || photoUrl.startsWith('https://')
+}
+
+/** Update marker DOM in place when only the photo URL changed (avoids recreating mapboxgl.Marker). */
+function applyMarkerPhoto(
+  el: HTMLDivElement,
+  place: Place & { category_color?: string; category_icon?: string },
+  photoUrl: string | null,
+  orderNumbers: number[] | null,
+  selected: boolean,
+) {
+  const img = el.querySelector('img')
+  if (img && isDisplayablePhotoUrl(photoUrl)) {
+    if (img.getAttribute('src') !== photoUrl) img.setAttribute('src', photoUrl)
+    return
+  }
+  if (!isDisplayablePhotoUrl(photoUrl)) return
+  const fresh = createMarkerElement(place, photoUrl, orderNumbers, selected)
+  el.innerHTML = fresh.innerHTML
+}
+
+type MarkerMeta = {
+  orderNumbers: number[] | null
+  selected: boolean
+  photoUrl: string | null
+}
+
+function attachMarkerInteractions(
+  el: HTMLDivElement,
+  place: MapHoverPlace,
+  onMarkerClick: ((id: number) => void) | undefined,
+  bindMarkerHover: (el: HTMLElement, place: MapHoverPlace) => () => void,
+  hoverCleanupRef: RefObject<Map<number, () => void>>,
+) {
+  el.onclick = (ev) => {
+    ev.stopPropagation()
+    onMarkerClick?.(place.id)
+  }
+  hoverCleanupRef.current?.get(place.id)?.()
+  const cleanupHover = bindMarkerHover(el, place)
+  hoverCleanupRef.current?.set(place.id, cleanupHover)
+}
+
 export function MapViewGL({
   places = [],
   dayPlaces = [],
@@ -157,6 +212,9 @@ export function MapViewGL({
   const showEndpointLabels = useSettingsStore(s => s.settings.map_booking_labels) !== false
   const placesPhotosEnabled = useAuthStore(s => s.placesPhotosEnabled)
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>(getAllThumbs)
+  const { hoverPreview, isTouchDevice, bindMarkerHover, language } = useMapPlaceHover(photoUrls)
+  const markerMetaRef = useRef<Map<number, MarkerMeta>>(new Map())
+  const hoverCleanupRef = useRef<Map<number, () => void>>(new Map())
   const [mapReady, setMapReady] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -391,9 +449,7 @@ export function MapViewGL({
     }
   }, [placeIds, placesPhotosEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reconcile markers with places + photos. Rebuilds the DOM node when any
-  // visual input changes so photos, selection state and order badges stay
-  // in sync.
+  // Reconcile markers when places / selection / order badges change.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -401,6 +457,9 @@ export function MapViewGL({
 
     markersRef.current.forEach((marker, id) => {
       if (!ids.has(id)) {
+        hoverCleanupRef.current.get(id)?.()
+        hoverCleanupRef.current.delete(id)
+        markerMetaRef.current.delete(id)
         marker.remove()
         markersRef.current.delete(id)
       }
@@ -408,30 +467,72 @@ export function MapViewGL({
 
     places.forEach(place => {
       if (!place.lat || !place.lng) return
+      const hoverPlace = place as MapHoverPlace
       const orderNumbers = dayOrderMap[place.id] ?? null
       const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
       const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
       const selected = place.id === selectedPlaceId
-      const el = createMarkerElement(place as Place & { category_color?: string; category_icon?: string }, photoUrl, orderNumbers, selected)
-      el.addEventListener('click', (ev) => {
-        ev.stopPropagation()
-        onClickRefs.current.marker?.(place.id)
-      })
-      // Recreate marker each time rather than patching internal state —
-      // mapbox-gl's internal _element bookkeeping breaks under DOM swaps.
+      const meta: MarkerMeta = { orderNumbers, selected, photoUrl }
+      const prev = markerMetaRef.current.get(place.id)
+
       const existing = markersRef.current.get(place.id)
+      const structureChanged = !prev
+        || prev.selected !== selected
+        || JSON.stringify(prev.orderNumbers) !== JSON.stringify(orderNumbers)
+
+      if (existing && !structureChanged) {
+        markerMetaRef.current.set(place.id, meta)
+        const el = existing.getElement()
+        if (el && prev.photoUrl !== photoUrl) {
+          applyMarkerPhoto(
+            el,
+            place as Place & { category_color?: string; category_icon?: string },
+            photoUrl,
+            orderNumbers,
+            selected,
+          )
+        }
+        return
+      }
+
+      const el = createMarkerElement(
+        place as Place & { category_color?: string; category_icon?: string },
+        photoUrl,
+        orderNumbers,
+        selected,
+      )
+      attachMarkerInteractions(el, hoverPlace, onClickRefs.current.marker, bindMarkerHover, hoverCleanupRef)
       if (existing) existing.remove()
-      // Default (viewport-aligned) anchors keep the marker parallel to the
-      // screen so its pixel centre lines up with the route line at any
-      // pitch. Tried `pitchAlignment: 'map'` to snap markers onto terrain,
-      // but it rotates the element by the pitch angle and visually offsets
-      // the anchor by ~100px at 45° tilt, which caused the observed drift.
       const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([place.lng, place.lat])
         .addTo(map)
       markersRef.current.set(place.id, m)
+      markerMetaRef.current.set(place.id, meta)
     })
-  }, [places, selectedPlaceId, dayOrderMap, photoUrls])
+  }, [places, selectedPlaceId, dayOrderMap, bindMarkerHover]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Photo thumbs arriving async — patch marker images without rebuilding markers.
+  useEffect(() => {
+    markersRef.current.forEach((marker, id) => {
+      const meta = markerMetaRef.current.get(id)
+      if (!meta) return
+      const place = places.find(p => p.id === id)
+      if (!place) return
+      const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+      const photoUrl = (pck && photoUrls[pck]) || place.image_url || null
+      if (photoUrl === meta.photoUrl) return
+      const el = marker.getElement()
+      if (!el) return
+      applyMarkerPhoto(
+        el,
+        place as Place & { category_color?: string; category_icon?: string },
+        photoUrl,
+        meta.orderNumbers,
+        meta.selected,
+      )
+      markerMetaRef.current.set(id, { ...meta, photoUrl })
+    })
+  }, [photoUrls, places])
 
   // Update route geojson
   useEffect(() => {
@@ -619,6 +720,15 @@ export function MapViewGL({
           error={trackingError}
           onClick={cycleTrackingMode}
           bottomOffset={buttonBottom as unknown as number}
+        />
+      )}
+      {hoverPreview && !isTouchDevice && (
+        <MapPlaceHoverPreview
+          place={hoverPreview.place}
+          photoUrl={hoverPreview.photoUrl}
+          x={hoverPreview.x}
+          y={hoverPreview.y}
+          language={language}
         />
       )}
     </div>
