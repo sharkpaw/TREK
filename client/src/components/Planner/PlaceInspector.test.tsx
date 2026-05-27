@@ -117,6 +117,24 @@ describe('PlaceInspector', () => {
     expect(screen.getByText(/Champ de Mars, Paris/)).toBeTruthy();
   });
 
+  it('FE-PLANNER-INSPECTOR-004b: opens photo lightbox when avatar is clicked', async () => {
+    const user = userEvent.setup();
+    const photoPlace = buildPlace({
+      id: 103,
+      name: 'Latin Köprüsü',
+      image_url: '/api/maps/place-photo/test/bytes',
+    });
+    render(<PlaceInspector {...defaultProps} place={photoPlace} />);
+
+    await user.click(screen.getByRole('button', { name: 'Latin Köprüsü' }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(dialog.querySelector('img')?.getAttribute('src')).toBe('/api/maps/place-photo/test/bytes');
+
+    await user.click(dialog);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('FE-PLANNER-INSPECTOR-005: shows category badge with category name', () => {
     const placeWithCat = buildPlace({ id: 100, category_id: cat.id });
     render(<PlaceInspector {...defaultProps} place={placeWithCat} categories={[cat]} />);

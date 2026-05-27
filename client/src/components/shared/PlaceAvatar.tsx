@@ -13,13 +13,15 @@ interface PlaceAvatarProps {
   place: Pick<Place, 'id' | 'name' | 'image_url' | 'google_place_id' | 'osm_id' | 'lat' | 'lng'>
   size?: number
   category?: Category | null
+  onPhotoClick?: (src: string) => void
 }
 
-export default React.memo(function PlaceAvatar({ place, size = 32, category }: PlaceAvatarProps) {
+export default React.memo(function PlaceAvatar({ place, size = 32, category, onPhotoClick }: PlaceAvatarProps) {
   const [photoSrc, setPhotoSrc] = useState<string | null>(place.image_url || null)
+  const [fullPhotoSrc, setFullPhotoSrc] = useState<string | null>(place.image_url || null)
   const [visible, setVisible] = useState(false)
   const imageUrlFailed = useRef(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLElement>(null)
   const placesPhotosEnabled = useAuthStore(s => s.placesPhotosEnabled)
 
   // Observe visibility — fetch photo only when avatar enters viewport
@@ -38,9 +40,18 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
     return () => io.disconnect()
   }, [place.id])
 
+  const applyPhotoEntry = (entry: { photoUrl: string | null; thumbDataUrl: string | null }) => {
+    setPhotoSrc(entry.thumbDataUrl || entry.photoUrl)
+    setFullPhotoSrc(entry.photoUrl || entry.thumbDataUrl)
+  }
+
   useEffect(() => {
     if (!visible) return
-    if (place.image_url) { setPhotoSrc(place.image_url); return }
+    if (place.image_url) {
+      setPhotoSrc(place.image_url)
+      setFullPhotoSrc(place.image_url)
+      return
+    }
     if (!placesPhotosEnabled) return
     const photoId = place.google_place_id || place.osm_id
     if (!photoId && !(place.lat && place.lng)) { setPhotoSrc(null); return }
@@ -49,7 +60,7 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
 
     const cached = getCached(cacheKey)
     if (cached) {
-      setPhotoSrc(cached.thumbDataUrl || cached.photoUrl)
+      applyPhotoEntry(cached)
       if (!cached.thumbDataUrl && cached.photoUrl) {
         return onThumbReady(cacheKey, thumb => setPhotoSrc(thumb))
       }
@@ -60,9 +71,7 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
       return onThumbReady(cacheKey, thumb => setPhotoSrc(thumb))
     }
 
-    fetchPhoto(cacheKey, photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name,
-      entry => { setPhotoSrc(entry.thumbDataUrl || entry.photoUrl) }
-    )
+    fetchPhoto(cacheKey, photoId || `coords:${place.lat}:${place.lng}`, place.lat, place.lng, place.name, applyPhotoEntry)
     return onThumbReady(cacheKey, thumb => setPhotoSrc(thumb))
   }, [visible, place.id, place.image_url, place.google_place_id, place.osm_id])
 
@@ -79,27 +88,54 @@ export default React.memo(function PlaceAvatar({ place, size = 32, category }: P
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   }
 
+  const clickable = !!(onPhotoClick && fullPhotoSrc)
+
   if (photoSrc) {
+    const image = (
+      <img
+        src={photoSrc}
+        alt={place.name}
+        decoding="async"
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        onError={() => {
+          if (!imageUrlFailed.current && photoSrc === place.image_url && (place.google_place_id || place.osm_id)) {
+            imageUrlFailed.current = true
+            const photoId = place.google_place_id || place.osm_id!
+            const cacheKey = `refetch:${photoId}`
+            fetchPhoto(cacheKey, photoId, place.lat ?? undefined, place.lng ?? undefined, place.name, applyPhotoEntry)
+          } else {
+            setPhotoSrc(null)
+            setFullPhotoSrc(null)
+          }
+        }}
+      />
+    )
+
+    if (clickable) {
+      return (
+        <button
+          ref={ref as React.RefObject<HTMLButtonElement>}
+          type="button"
+          aria-label={place.name}
+          onClick={() => onPhotoClick!(fullPhotoSrc!)}
+          style={{
+            ...containerStyle,
+            border: 'none',
+            padding: 0,
+            cursor: 'zoom-in',
+            transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.04)' }}
+          onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+        >
+          {image}
+        </button>
+      )
+    }
+
     return (
       <div ref={ref} style={containerStyle}>
-        <img
-          src={photoSrc}
-          alt={place.name}
-          decoding="async"
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          onError={() => {
-            if (!imageUrlFailed.current && photoSrc === place.image_url && (place.google_place_id || place.osm_id)) {
-              imageUrlFailed.current = true
-              const photoId = place.google_place_id || place.osm_id!
-              const cacheKey = `refetch:${photoId}`
-              fetchPhoto(cacheKey, photoId, place.lat ?? undefined, place.lng ?? undefined, place.name,
-                entry => { setPhotoSrc(entry.thumbDataUrl || entry.photoUrl) }
-              )
-            } else {
-              setPhotoSrc(null)
-            }
-          }}
-        />
+        {image}
       </div>
     )
   }

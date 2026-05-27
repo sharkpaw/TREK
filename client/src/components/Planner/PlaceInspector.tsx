@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { X, Clock, MapPin, ExternalLink, Phone, Euro, Edit2, Trash2, Plus, Minus, ChevronDown, ChevronUp, FileText, Upload, File, FileImage, Star, Navigation, Users, Mountain, TrendingUp } from 'lucide-react'
 import PlaceAvatar from '../shared/PlaceAvatar'
+import PlacePhotoLightbox from '../shared/PlacePhotoLightbox'
 import { mapsApi } from '../../api/client'
 import { useSettingsStore } from '../../store/settingsStore'
 import { getCategoryIcon } from '../shared/categoryIcons'
@@ -139,6 +140,7 @@ export default function PlaceInspector({
   const timeFormat = useSettingsStore(s => s.settings.time_format) || '24h'
   const [hoursExpanded, setHoursExpanded] = useState(false)
   const [filesExpanded, setFilesExpanded] = useState(false)
+  const [photoLightbox, setPhotoLightbox] = useState<{ src: string; alt: string } | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState('')
@@ -203,6 +205,15 @@ export default function PlaceInspector({
   }, [onFileUpload, place.id])
 
   return (
+    <>
+    {photoLightbox && (
+      <PlacePhotoLightbox
+        src={photoLightbox.src}
+        alt={photoLightbox.alt}
+        caption={place.name}
+        onClose={() => setPhotoLightbox(null)}
+      />
+    )}
     <div
       style={{
         position: 'absolute',
@@ -233,7 +244,12 @@ export default function PlaceInspector({
               borderRadius: '50%', padding: 2.5,
               background: openNow === true ? '#22c55e' : openNow === false ? '#ef4444' : 'transparent',
             }}>
-              <PlaceAvatar place={place} category={category} size={52} />
+              <PlaceAvatar
+                place={place}
+                category={category}
+                size={52}
+                onPhotoClick={src => setPhotoLightbox({ src, alt: place.name })}
+              />
             </div>
             {openNow !== null && (
               <span style={{
@@ -644,6 +660,7 @@ export default function PlaceInspector({
         </div>
       </div>
     </div>
+    </>
   )
 }
 
