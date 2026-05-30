@@ -13,6 +13,10 @@ import type { Place } from '../../types'
 
 export const CLUSTER_SOURCE_ID = 'trip-places-cluster'
 
+function canQueryClusterSource(map: mapboxgl.Map): boolean {
+  return map.isStyleLoaded() && Boolean(map.getSource(CLUSTER_SOURCE_ID))
+}
+
 export type SpiderfyState = {
   clusterId: number
   positions: Map<number, [number, number]>
@@ -23,6 +27,7 @@ export function ensureClusterSource(
   places: Place[],
   radius: number,
 ): void {
+  if (!map.isStyleLoaded()) return
   const data = placesToClusterGeoJSON(places)
   if (map.getSource(CLUSTER_SOURCE_ID)) {
     const src = map.getSource(CLUSTER_SOURCE_ID) as mapboxgl.GeoJSONSource
@@ -44,6 +49,7 @@ export function rebuildClusterSource(
   places: Place[],
   radius: number,
 ): void {
+  if (!map.isStyleLoaded()) return
   if (map.getLayer('trip-clusters')) map.removeLayer('trip-clusters')
   if (map.getLayer('trip-cluster-count')) map.removeLayer('trip-cluster-count')
   if (map.getSource(CLUSTER_SOURCE_ID)) map.removeSource(CLUSTER_SOURCE_ID)
@@ -117,6 +123,7 @@ export function spiderfyPlacePositions(
 }
 
 export function getUnclusteredPlaceIds(map: mapboxgl.Map): Set<number> {
+  if (!canQueryClusterSource(map)) return new Set()
   const features = map.querySourceFeatures(CLUSTER_SOURCE_ID, {
     filter: ['!', ['has', 'point_count']],
   })
@@ -219,6 +226,8 @@ export async function syncHtmlClusterMarkers(
     clusterMarkersRef.clear()
     return
   }
+
+  if (!canQueryClusterSource(map)) return
 
   const raw = map.querySourceFeatures(CLUSTER_SOURCE_ID, {
     filter: ['has', 'point_count'],

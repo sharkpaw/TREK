@@ -586,7 +586,7 @@ export function MapViewGL({
   // Cluster source data, dynamic radius, HTML cluster markers (Leaflet-style)
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReady) return
+    if (!map || !mapReady || !map.isStyleLoaded()) return
 
     const radius = clusterRadiusForZoom(map.getZoom())
     if (clusterRadiusAppliedRef.current !== radius && map.getSource(CLUSTER_SOURCE_ID)) {
@@ -599,11 +599,7 @@ export function MapViewGL({
     clusterRadiusAppliedRef.current = radius
 
     const runSync = () => {
-      if (isTouchDevice) {
-        clusterMarkersRef.current.forEach(m => m.remove())
-        clusterMarkersRef.current.clear()
-        return
-      }
+      if (!map.isStyleLoaded()) return
       const syncGen = ++clusterSyncGenRef.current
       void syncHtmlClusterMarkers(
         map,
@@ -667,7 +663,7 @@ export function MapViewGL({
   // Reconcile markers when places / selection / order badges change.
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !mapReady || !map.isStyleLoaded()) return
 
     const visibility = resolveVisiblePlaceMarkers(map, places, spiderfyRef.current)
     const showAll = visibility.mode === 'all'
@@ -734,7 +730,7 @@ export function MapViewGL({
       markersRef.current.set(place.id, m)
       markerMetaRef.current.set(place.id, meta)
     })
-  }, [places, selectedPlaceId, dayOrderMap, bindMarkerHover, zoomRev]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [places, selectedPlaceId, dayOrderMap, bindMarkerHover, zoomRev, mapReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Photo thumbs arriving async — patch marker images without rebuilding markers.
   useEffect(() => {

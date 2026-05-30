@@ -17,6 +17,7 @@ import { revokeUserSessions } from '../mcp';
 import { startTripReminders } from '../scheduler';
 import { deleteUserCompletely } from './userCleanupService';
 import { verifyJwtAndLoadUser } from '../middleware/auth';
+import { SESSION_JWT_EXPIRES_IN } from './sessionConfig';
 import { User } from '../types';
 import { DEMO_EMAIL_PRIMARY, isDemoEmail } from './demo';
 
@@ -171,7 +172,7 @@ export function generateToken(user: { id: number | bigint; password_version?: nu
   return jwt.sign(
     { id: user.id, pv },
     JWT_SECRET,
-    { expiresIn: '24h', algorithm: 'HS256' }
+    { expiresIn: SESSION_JWT_EXPIRES_IN, algorithm: 'HS256' }
   );
 }
 

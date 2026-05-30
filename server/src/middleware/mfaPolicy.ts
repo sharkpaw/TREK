@@ -54,7 +54,7 @@ export function enforceGlobalMfaPolicy(req: Request, res: Response, next: NextFu
 
   // Use the shared verify helper so the `password_version` gate applies
   // here too — a JWT stolen before a password reset would otherwise
-  // continue to satisfy this middleware until its natural 24h expiry.
+  // continue to satisfy this middleware until its natural session expiry.
   const verified = verifyJwtAndLoadUser(token);
   if (!verified) {
     next();

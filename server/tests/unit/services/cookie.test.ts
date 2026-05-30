@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { SESSION_MAX_AGE_MS } from '../../../src/services/sessionConfig';
 import { cookieOptions } from '../../../src/services/cookie';
 
 describe('cookieOptions', () => {
@@ -44,9 +45,9 @@ describe('cookieOptions', () => {
     expect(cookieOptions().secure).toBe(true);
   });
 
-  it('includes maxAge: 86400000 when clear is false (default)', () => {
-    expect(cookieOptions()).toHaveProperty('maxAge', 24 * 60 * 60 * 1000);
-    expect(cookieOptions(false)).toHaveProperty('maxAge', 24 * 60 * 60 * 1000);
+  it('includes maxAge matching session lifetime when clear is false (default)', () => {
+    expect(cookieOptions()).toHaveProperty('maxAge', SESSION_MAX_AGE_MS);
+    expect(cookieOptions(false)).toHaveProperty('maxAge', SESSION_MAX_AGE_MS);
   });
 
   it('omits maxAge when clear is true', () => {

@@ -5,6 +5,7 @@ import { JWT_SECRET } from '../config';
 import { User } from '../types';
 import { decrypt_api_key } from './apiKeyCrypto';
 import { resolveAuthToggles } from './authService';
+import { SESSION_JWT_EXPIRES_IN } from './sessionConfig';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,7 +192,7 @@ export function frontendUrl(path: string): string {
 }
 
 export function generateToken(user: { id: number }): string {
-  return jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '24h', algorithm: 'HS256' });
+  return jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: SESSION_JWT_EXPIRES_IN, algorithm: 'HS256' });
 }
 
 // ---------------------------------------------------------------------------
