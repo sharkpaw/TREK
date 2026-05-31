@@ -109,6 +109,7 @@ const TOTAL_CURRENCY_OPTIONS = [
   { value: 'EUR', label: '€' },
   { value: 'USD', label: '$' },
 ]
+const PANEL_CURRENCIES = ['TRY', 'EUR', 'USD'] as const
 
 function sumByItemCurrency(items: BudgetItem[], getItemCurrency: (item: BudgetItem) => string) {
   const map = new Map<string, number>()
@@ -1095,23 +1096,42 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 11, color: theme.faint, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.09em' }}>{t('budget.totalBudget')}</div>
+                <div style={{ fontSize: 12, color: theme.sub, marginTop: 2 }}>{t('budget.spendingByCurrency')}</div>
               </div>
             </div>
 
-            {Array.from(totalsByCurrency.entries()).map(([cur, total], idx) => {
+            {PANEL_CURRENCIES.map((cur, idx) => {
+              const total = totalsByCurrency.get(cur) || 0
+              const maxTotal = Math.max(...PANEL_CURRENCIES.map(c => totalsByCurrency.get(c) || 0))
+              const isPrimary = total > 0 && total === maxTotal
+              const labelKey = cur === 'TRY' ? 'budget.currencyTRY' : cur === 'EUR' ? 'budget.currencyEUR' : 'budget.currencyUSD'
               const decimals = currencyDecimals(cur)
               const full = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
               const sep = (0.1).toLocaleString(locale).replace(/\d/g, '')
               const [integerPart, decimalPart] = decimals > 0 ? full.split(sep) : [full, '']
               return (
-                <div key={cur} style={{ marginTop: idx > 0 ? 14 : 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, letterSpacing: '-0.03em', lineHeight: 1 }}>
-                    <span style={{ fontSize: idx === 0 ? 38 : 28, fontWeight: 700 }}>{integerPart}</span>
-                    {decimalPart && <span style={{ fontSize: idx === 0 ? 22 : 18, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
-                    <span style={{ fontSize: idx === 0 ? 22 : 18, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[cur] || cur}</span>
-                  </div>
-                  <div style={{ color: theme.faint, fontSize: 12, marginTop: 8, fontWeight: 500, letterSpacing: '0.04em' }}>
-                    <span>{cur}</span>
+                <div key={cur} style={{
+                  marginTop: idx > 0 ? 12 : 0,
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  background: isPrimary && total > 0 ? theme.iconBg : 'transparent',
+                  border: `1px solid ${isPrimary && total > 0 ? theme.iconBorder : theme.divider}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{
+                        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: theme.iconBg, border: `1px solid ${theme.iconBorder}`,
+                        fontSize: 14, fontWeight: 700, color: theme.iconColor,
+                      }}>{SYMBOLS[cur]}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{t(labelKey)}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, letterSpacing: '-0.02em', flexShrink: 0 }}>
+                      <span style={{ fontSize: isPrimary && total > 0 ? 22 : 18, fontWeight: 700, color: total > 0 ? theme.text : theme.faint }}>{integerPart}</span>
+                      {decimalPart && <span style={{ fontSize: isPrimary && total > 0 ? 14 : 12, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
+                      <span style={{ fontSize: 14, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[cur]}</span>
+                    </div>
                   </div>
                 </div>
               )

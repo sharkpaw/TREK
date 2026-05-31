@@ -41,5 +41,9 @@ const budget: TranslationStrings = {
   'budget.categoriesLabel': 'categories',
   'budget.categoryCurrency': 'Currency',
   'budget.mixedCurrencies': 'Mixed',
+  'budget.currencyTRY': 'TL',
+  'budget.currencyEUR': 'Euro',
+  'budget.currencyUSD': 'Dollar',
+  'budget.spendingByCurrency': 'By Currency',
 };
 export default budget;
