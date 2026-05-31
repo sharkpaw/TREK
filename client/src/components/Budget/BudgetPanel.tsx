@@ -123,9 +123,9 @@ const SYMBOLS = {
 }
 const CATEGORY_CURRENCIES = ['EUR', 'USD', 'TRY'] as const
 const TOTAL_CURRENCY_OPTIONS = [
-  { value: 'TRY', label: '₺', badge: 'TL' },
-  { value: 'EUR', label: '€', badge: 'EUR' },
-  { value: 'USD', label: '$', badge: 'USD' },
+  { value: 'TRY', label: '₺' },
+  { value: 'EUR', label: '€' },
+  { value: 'USD', label: '$' },
 ]
 const PANEL_CURRENCIES = ['TRY', 'EUR', 'USD'] as const
 
@@ -148,7 +148,9 @@ function BudgetCurrencySelect({ value, onChange, disabled }: { value: string; on
       disabled={disabled}
       options={TOTAL_CURRENCY_OPTIONS}
       size="sm"
-      menuMinWidth={136}
+      menuWidth={72}
+      menuAlign="right"
+      menuSymbolOnly
       borderless
     />
   )

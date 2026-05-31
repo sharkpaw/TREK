@@ -5,6 +5,8 @@ import { ChevronDown, Check } from 'lucide-react'
 interface SelectOption {
   value: string
   label: string
+  /** Longer label shown in the dropdown menu (trigger keeps `label`). */
+  menuLabel?: string
   icon?: React.ReactNode
   isHeader?: boolean
   searchLabel?: string
@@ -25,6 +27,12 @@ interface CustomSelectProps {
   hideLabel?: boolean
   /** Minimum width of the dropdown menu (defaults to trigger width). */
   menuMinWidth?: number
+  /** Fixed dropdown width — takes precedence over menuMinWidth. */
+  menuWidth?: number
+  /** Align dropdown to the right edge of the trigger. */
+  menuAlign?: 'left' | 'right'
+  /** Dropdown shows only option labels (e.g. currency symbols), centered and enlarged. */
+  menuSymbolOnly?: boolean
   /** Embedded in a composite control — no outer trigger border. */
   borderless?: boolean
 }
@@ -40,10 +48,14 @@ export default function CustomSelect({
   disabled = false,
   hideLabel = false,
   menuMinWidth,
+  menuWidth,
+  menuAlign = 'left',
+  menuSymbolOnly = false,
   borderless = false,
 }: CustomSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [menuPos, setMenuPos] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -61,6 +73,32 @@ export default function CustomSelect({
     if (open) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
+
+  useEffect(() => {
+    if (!open) {
+      setMenuPos(null)
+      return
+    }
+    const updatePos = () => {
+      const r = ref.current?.getBoundingClientRect()
+      if (!r) return
+      const width = menuWidth ?? Math.max(r.width, menuMinWidth ?? 0, 120)
+      let left = menuAlign === 'right' ? r.right - width : r.left
+      left = Math.max(8, Math.min(left, window.innerWidth - width - 8))
+      const spaceBelow = window.innerHeight - r.bottom
+      const openUp = spaceBelow < 220 && r.top > spaceBelow
+      setMenuPos(openUp
+        ? { bottom: window.innerHeight - r.top + 4, left, width }
+        : { top: r.bottom + 4, left, width })
+    }
+    updatePos()
+    window.addEventListener('resize', updatePos)
+    window.addEventListener('scroll', updatePos, true)
+    return () => {
+      window.removeEventListener('resize', updatePos)
+      window.removeEventListener('scroll', updatePos, true)
+    }
+  }, [open, menuWidth, menuMinWidth, menuAlign])
 
   const selected = options.find(o => o.value === value)
   const filtered = searchable && search
@@ -122,7 +160,7 @@ export default function CustomSelect({
             {selected ? selected.label : placeholder}
           </span>
         )}
-        {!hideLabel && selected?.badge && (
+        {!hideLabel && selected?.badge && !borderless && (
           <span style={{
             flexShrink: 0, fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
             background: 'var(--bg-tertiary)', padding: '2px 7px', borderRadius: 999,
@@ -133,19 +171,14 @@ export default function CustomSelect({
       </button>
 
       {/* Dropdown */}
-      {open && ReactDOM.createPortal(
+      {open && menuPos && ReactDOM.createPortal(
         <div ref={dropRef} style={{
           position: 'fixed',
-          ...(() => {
-            const r = ref.current?.getBoundingClientRect()
-            if (!r) return { top: 0, left: 0, width: menuMinWidth ?? 200 }
-            const dropWidth = Math.max(r.width, menuMinWidth ?? 0)
-            const spaceBelow = window.innerHeight - r.bottom
-            const openUp = spaceBelow < 220 && r.top > spaceBelow
-            return openUp
-              ? { bottom: window.innerHeight - r.top + 4, left: r.left, width: dropWidth }
-              : { top: r.bottom + 4, left: r.left, width: dropWidth }
-          })(),
+          top: menuPos.top,
+          bottom: menuPos.bottom,
+          left: menuPos.left,
+          width: menuPos.width,
+          minWidth: menuPos.width,
           zIndex: 99999,
           background: 'var(--bg-card)',
           backdropFilter: 'blur(24px) saturate(180%)',
@@ -155,8 +188,9 @@ export default function CustomSelect({
           boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
           overflow: 'hidden',
           animation: 'trek-menu-enter 200ms cubic-bezier(0.23, 1, 0.32, 1)',
-          transformOrigin: 'top center',
+          transformOrigin: menuAlign === 'right' ? 'top right' : 'top left',
           willChange: 'transform, opacity',
+          boxSizing: 'border-box',
         }}>
           {/* Search */}
           {searchable && (
@@ -195,31 +229,38 @@ export default function CustomSelect({
                   )
                 }
                 const isSelected = option.value === value
+                const optionText = menuSymbolOnly ? option.label : (option.menuLabel ?? option.label)
                 return (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => { onChange(option.value); setOpen(false); setSearch('') }}
                     style={{
-                      width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '7px 10px', borderRadius: 6,
+                      width: '100%', display: 'flex', alignItems: 'center',
+                      justifyContent: menuSymbolOnly ? 'center' : undefined,
+                      gap: menuSymbolOnly ? 6 : 10,
+                      padding: menuSymbolOnly ? '10px 12px' : '8px 12px', borderRadius: 6,
                       border: 'none', background: isSelected ? 'var(--bg-hover)' : 'transparent',
-                      color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit',
-                      cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s',
+                      color: 'var(--text-primary)',
+                      fontSize: menuSymbolOnly ? 18 : 14,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer', textAlign: menuSymbolOnly ? 'center' : 'left',
+                      transition: 'background 0.1s',
+                      whiteSpace: 'nowrap',
                     }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'var(--bg-hover)' : 'transparent'}
                   >
                     {option.icon && <span style={{ display: 'flex', flexShrink: 0 }}>{option.icon}</span>}
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option.label}</span>
-                    {option.badge && (
+                    <span style={{ flex: menuSymbolOnly ? undefined : 1, minWidth: 0, fontWeight: 700 }}>{optionText}</span>
+                    {!menuSymbolOnly && option.badge && (
                       <span style={{
                         flexShrink: 0, fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
                         background: 'var(--bg-tertiary)', padding: '2px 7px', borderRadius: 999,
                         letterSpacing: '0.01em',
                       }}>{option.badge}</span>
                     )}
-                    {isSelected && <Check size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />}
+                    {isSelected && <Check size={menuSymbolOnly ? 14 : 13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />}
                   </button>
                 )
               })
