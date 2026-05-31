@@ -153,11 +153,28 @@ export function resolveVisiblePlaceMarkers(
   if (!shouldShowMapClusters(map.getZoom())) {
     return { mode: 'all' }
   }
+  if (!canQueryClusterSource(map)) {
+    // Cluster source not attached yet — show markers until the map is ready.
+    return { mode: 'all' }
+  }
   const positions = new Map<number, [number, number]>()
   if (spiderfy) {
     for (const [id, pos] of spiderfy.positions) positions.set(id, pos)
   }
   const unclustered = getUnclusteredPlaceIds(map)
+  const clusterFeatures = map.querySourceFeatures(CLUSTER_SOURCE_ID, {
+    filter: ['has', 'point_count'],
+  })
+  // GeoJSON clustering indexes asynchronously after setData; until Mapbox
+  // returns either cluster or point features, querySourceFeatures is empty
+  // and we'd render nothing. Fall back to all markers until the index is warm.
+  const indexReady =
+    places.length === 0
+    || unclustered.size > 0
+    || clusterFeatures.length > 0
+  if (!indexReady) {
+    return { mode: 'all' }
+  }
   for (const place of places) {
     if (place.lat == null || place.lng == null) continue
     if (positions.has(place.id)) continue

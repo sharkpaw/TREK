@@ -663,73 +663,93 @@ export function MapViewGL({
   // Reconcile markers when places / selection / order badges change.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReady || !map.isStyleLoaded()) return
+    if (!map || !mapReady) return
 
-    const visibility = resolveVisiblePlaceMarkers(map, places, spiderfyRef.current)
-    const showAll = visibility.mode === 'all'
-    const partialPositions = visibility.mode === 'partial' ? visibility.positions : null
+    const reconcileMarkers = () => {
+      if (!map.isStyleLoaded()) return
 
-    const ids = showAll
-      ? new Set(places.map(p => p.id))
-      : new Set(partialPositions?.keys() ?? [])
+      const visibility = resolveVisiblePlaceMarkers(map, places, spiderfyRef.current)
+      const showAll = visibility.mode === 'all'
+      const partialPositions = visibility.mode === 'partial' ? visibility.positions : null
 
-    markersRef.current.forEach((marker, id) => {
-      if (!ids.has(id)) {
-        hoverCleanupRef.current.get(id)?.()
-        hoverCleanupRef.current.delete(id)
-        markerMetaRef.current.delete(id)
-        marker.remove()
-        markersRef.current.delete(id)
-      }
-    })
+      const ids = showAll
+        ? new Set(places.map(p => p.id))
+        : new Set(partialPositions?.keys() ?? [])
 
-    places.forEach(place => {
-      if (!place.lat || !place.lng) return
-      if (!ids.has(place.id)) return
-      const hoverPlace = place as MapHoverPlace
-      const markerLngLat: [number, number] = partialPositions?.get(place.id) ?? [place.lng, place.lat]
-      const orderNumbers = dayOrderMap[place.id] ?? null
-      const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
-      const photoUrl = (pck && photoUrls[pck]) || null
-      const selected = place.id === selectedPlaceId
-      const meta: MarkerMeta = { orderNumbers, selected, photoUrl }
-      const prev = markerMetaRef.current.get(place.id)
-
-      const existing = markersRef.current.get(place.id)
-      const structureChanged = !prev
-        || prev.selected !== selected
-        || JSON.stringify(prev.orderNumbers) !== JSON.stringify(orderNumbers)
-
-      if (existing && !structureChanged) {
-        markerMetaRef.current.set(place.id, meta)
-        existing.setLngLat(markerLngLat)
-        const el = existing.getElement()
-        if (el && prev.photoUrl !== photoUrl) {
-          applyMarkerPhoto(
-            el,
-            place as Place & { category_color?: string; category_icon?: string },
-            photoUrl,
-            orderNumbers,
-            selected,
-          )
+      markersRef.current.forEach((marker, id) => {
+        if (!ids.has(id)) {
+          hoverCleanupRef.current.get(id)?.()
+          hoverCleanupRef.current.delete(id)
+          markerMetaRef.current.delete(id)
+          marker.remove()
+          markersRef.current.delete(id)
         }
-        return
-      }
+      })
 
-      const el = createMarkerElement(
-        place as Place & { category_color?: string; category_icon?: string },
-        photoUrl,
-        orderNumbers,
-        selected,
-      )
-      attachMarkerInteractions(el, hoverPlace, id => openPlaceFromMapRef.current(id), bindMarkerHover, hoverCleanupRef, () => clearAllHoverRef.current())
-      if (existing) existing.remove()
-      const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat(markerLngLat)
-        .addTo(map)
-      markersRef.current.set(place.id, m)
-      markerMetaRef.current.set(place.id, meta)
-    })
+      places.forEach(place => {
+        if (!place.lat || !place.lng) return
+        if (!ids.has(place.id)) return
+        const hoverPlace = place as MapHoverPlace
+        const markerLngLat: [number, number] = partialPositions?.get(place.id) ?? [place.lng, place.lat]
+        const orderNumbers = dayOrderMap[place.id] ?? null
+        const pck = place.google_place_id || place.osm_id || `${place.lat},${place.lng}`
+        const photoUrl = (pck && photoUrls[pck]) || null
+        const selected = place.id === selectedPlaceId
+        const meta: MarkerMeta = { orderNumbers, selected, photoUrl }
+        const prev = markerMetaRef.current.get(place.id)
+
+        const existing = markersRef.current.get(place.id)
+        const structureChanged = !prev
+          || prev.selected !== selected
+          || JSON.stringify(prev.orderNumbers) !== JSON.stringify(orderNumbers)
+
+        if (existing && !structureChanged) {
+          markerMetaRef.current.set(place.id, meta)
+          existing.setLngLat(markerLngLat)
+          const el = existing.getElement()
+          if (el && prev.photoUrl !== photoUrl) {
+            applyMarkerPhoto(
+              el,
+              place as Place & { category_color?: string; category_icon?: string },
+              photoUrl,
+              orderNumbers,
+              selected,
+            )
+          }
+          return
+        }
+
+        const el = createMarkerElement(
+          place as Place & { category_color?: string; category_icon?: string },
+          photoUrl,
+          orderNumbers,
+          selected,
+        )
+        attachMarkerInteractions(el, hoverPlace, id => openPlaceFromMapRef.current(id), bindMarkerHover, hoverCleanupRef, () => clearAllHoverRef.current())
+        if (existing) existing.remove()
+        const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
+          .setLngLat(markerLngLat)
+          .addTo(map)
+        markersRef.current.set(place.id, m)
+        markerMetaRef.current.set(place.id, meta)
+      })
+    }
+
+    reconcileMarkers()
+    if (!map.isStyleLoaded()) map.once('idle', reconcileMarkers)
+
+    const onSourceData = (e: mapboxgl.MapSourceDataEvent) => {
+      if (e.sourceId === CLUSTER_SOURCE_ID && e.isSourceLoaded) reconcileMarkers()
+    }
+    map.on('idle', reconcileMarkers)
+    map.on('moveend', reconcileMarkers)
+    map.on('sourcedata', onSourceData)
+
+    return () => {
+      map.off('idle', reconcileMarkers)
+      map.off('moveend', reconcileMarkers)
+      map.off('sourcedata', onSourceData)
+    }
   }, [places, selectedPlaceId, dayOrderMap, bindMarkerHover, zoomRev, mapReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Photo thumbs arriving async — patch marker images without rebuilding markers.
