@@ -21,6 +21,8 @@ interface CustomSelectProps {
   style?: React.CSSProperties
   size?: 'sm' | 'md'
   disabled?: boolean
+  /** Trigger shows only the chevron (options still show full labels). */
+  hideLabel?: boolean
 }
 
 export default function CustomSelect({
@@ -32,6 +34,7 @@ export default function CustomSelect({
   style = {},
   size = 'md',
   disabled = false,
+  hideLabel = false,
 }: CustomSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -89,8 +92,8 @@ export default function CustomSelect({
         disabled={disabled}
         onClick={() => { if (!disabled) { setOpen(o => !o); setSearch('') } }}
         style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-          padding: sm ? '8px 12px' : '8px 14px', borderRadius: 10,
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: hideLabel ? 'center' : undefined, gap: hideLabel ? 0 : 8,
+          padding: hideLabel ? (sm ? '6px 4px' : '8px 6px') : (sm ? '8px 12px' : '8px 14px'), borderRadius: 10,
           border: '1px solid var(--border-primary)',
           background: 'var(--bg-input)', color: 'var(--text-primary)',
           fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
@@ -102,10 +105,12 @@ export default function CustomSelect({
         onMouseLeave={e => { if (!open) e.currentTarget.style.borderColor = 'var(--border-primary)' }}
       >
         {selected?.icon && <span style={{ display: 'flex', flexShrink: 0 }}>{selected.icon}</span>}
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selected ? 'var(--text-primary)' : 'var(--text-faint)' }}>
-          {selected ? selected.label : placeholder}
-        </span>
-        {selected?.badge && (
+        {!hideLabel && (
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selected ? 'var(--text-primary)' : 'var(--text-faint)' }}>
+            {selected ? selected.label : placeholder}
+          </span>
+        )}
+        {!hideLabel && selected?.badge && (
           <span style={{
             flexShrink: 0, fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',
             background: 'var(--bg-tertiary)', padding: '2px 7px', borderRadius: 999,

@@ -183,35 +183,46 @@ interface TotalWithCurrencyProps {
 }
 
 function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, locale, canEdit, editTooltip }: TotalWithCurrencyProps) {
+  const symbol = SYMBOLS[currency] || currency
   return (
     <div
       style={{
-        display: 'flex', alignItems: 'center', gap: 4, minWidth: 118,
+        display: 'flex', alignItems: 'center', gap: 4, minWidth: 128,
         padding: '2px 4px 2px 6px', borderRadius: 8,
         border: '1px solid var(--border-primary)', background: 'var(--bg-input)',
       }}
       onClick={e => e.stopPropagation()}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
         <InlineEditCell
           value={amount}
           type="number"
           decimals={currencyDecimals(currency)}
           onSave={onSaveAmount}
-          style={{ textAlign: 'center' }}
+          style={{ textAlign: 'right', flex: 1, minWidth: 0 }}
           placeholder={currencyDecimals(currency) === 0 ? '0' : '0,00'}
           locale={locale}
           editTooltip={editTooltip}
           readOnly={!canEdit}
         />
+        <span
+          aria-hidden
+          style={{
+            fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)',
+            flexShrink: 0, lineHeight: 1, paddingRight: 2,
+          }}
+        >
+          {symbol}
+        </span>
       </div>
-      <div style={{ width: 46, flexShrink: 0 }}>
+      <div style={{ width: 28, flexShrink: 0 }} title={currency}>
         <CustomSelect
           value={currency}
           onChange={onChangeCurrency}
           disabled={!canEdit}
           options={TOTAL_CURRENCY_OPTIONS}
           size="sm"
+          hideLabel
         />
       </div>
     </div>
