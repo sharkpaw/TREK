@@ -466,6 +466,18 @@ export const airportsApi = {
   byIata: (iata: string) => apiClient.get(`/airports/${encodeURIComponent(iata)}`).then(r => r.data),
 }
 
+export interface TryExchangeRatesResponse {
+  source: 'tcmb' | 'exchangerate-api'
+  date: string
+  fetchedAt: string
+  rates: { EUR: number; USD: number }
+}
+
+export const exchangeRatesApi = {
+  tryRates: (refresh = false) =>
+    apiClient.get<TryExchangeRatesResponse>('/exchange-rates/try', { params: refresh ? { refresh: 'true' } : {} }).then(r => r.data),
+}
+
 export const budgetApi = {
   list: (tripId: number | string) => apiClient.get(`/trips/${tripId}/budget`).then(r => r.data),
   create: (tripId: number | string, data: Record<string, unknown>) => apiClient.post(`/trips/${tripId}/budget`, data).then(r => r.data),

@@ -46,5 +46,11 @@ const budget: TranslationStrings = {
   'budget.currencyUSD': 'Dollar',
   'budget.spendingByCurrency': 'By Currency',
   'budget.allMembers': 'All',
+  'budget.tryConversionTitle': 'Total in TL',
+  'budget.tryConversionSubtitle': 'Converted at TCMB forex buying rate',
+  'budget.grandTotalTry': 'Grand Total (TL)',
+  'budget.refreshRates': 'Refresh rates',
+  'budget.ratesUnavailable': 'Exchange rates unavailable',
+  'budget.ratesFootnote': 'Source: {source} · Rate date: {date}',
 };
 export default budget;

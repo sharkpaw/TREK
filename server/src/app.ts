@@ -23,6 +23,7 @@ import categoriesRoutes from './routes/categories';
 import adminRoutes from './routes/admin';
 import mapsRoutes from './routes/maps';
 import airportsRoutes from './routes/airports';
+import exchangeRatesRoutes from './routes/exchangeRates';
 import filesRoutes from './routes/files';
 import reservationsRoutes from './routes/reservations';
 import dayNotesRoutes from './routes/dayNotes';
@@ -360,6 +361,7 @@ export function createApp(): express.Application {
   app.use('/api/photos', photoRoutes);
   app.use('/api/maps', mapsRoutes);
   app.use('/api/airports', airportsRoutes);
+  app.use('/api/exchange-rates', exchangeRatesRoutes);
   // /api/weather is served by the NestJS weather module (see src/nest/weather);
   // the legacy Express route was decommissioned after the migration (L1).
   app.use('/api/settings', settingsRoutes);

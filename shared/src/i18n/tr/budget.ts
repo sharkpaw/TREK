@@ -43,5 +43,11 @@ const budget: TranslationStrings = {
   'budget.currencyUSD': 'Dolar',
   'budget.spendingByCurrency': 'Para Birimine Göre',
   'budget.allMembers': 'Hepsi',
+  'budget.tryConversionTitle': 'TL Karşılığı Toplam',
+  'budget.tryConversionSubtitle': 'TCMB döviz alış kuru ile',
+  'budget.grandTotalTry': 'Genel Toplam (TL)',
+  'budget.refreshRates': 'Kurları yenile',
+  'budget.ratesUnavailable': 'Döviz kurları alınamadı',
+  'budget.ratesFootnote': 'Kaynak: {source} · Kur tarihi: {date}',
 };
 export default budget;

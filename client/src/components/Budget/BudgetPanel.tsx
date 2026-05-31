@@ -5,6 +5,7 @@ import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useTranslation } from '../../i18n'
 import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon } from 'lucide-react'
+import BudgetTryConversion from './BudgetTryConversion'
 
 function useIsDark(): boolean {
   const [dark, setDark] = useState<boolean>(() => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
@@ -1286,6 +1287,13 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                 </button>
               )
             })}
+
+            <BudgetTryConversion
+              totalsByCurrency={totalsByCurrency}
+              locale={locale}
+              theme={theme}
+              t={t}
+            />
 
             {hasMultipleMembers && perPersonForPanel.length > 0 && (
               <PerPersonInline
