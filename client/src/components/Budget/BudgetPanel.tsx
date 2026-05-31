@@ -169,6 +169,10 @@ const fmtNum = (v, locale, cur) => {
 const calcPP = (p, n) => (n > 0 ? p / n : null)
 const calcPD = (p, d) => (d > 0 ? p / d : null)
 const calcPPD = (p, n, d) => (n > 0 && d > 0 ? p / (n * d) : null)
+const todayLocalDate = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 // ── Inline Edit Cell ─────────────────────────────────────────────────────────
 function InlineEditCell({ value, onSave, type = 'text', style = {}, placeholder = '', decimals = 2, locale, editTooltip, readOnly = false }) {
@@ -242,7 +246,7 @@ function AddItemRow({ onAdd, defaultCurrency, t }: AddItemRowProps) {
   const [persons, setPersons] = useState('')
   const [days, setDays] = useState('')
   const [note, setNote] = useState('')
-  const [expenseDate, setExpenseDate] = useState('')
+  const [expenseDate, setExpenseDate] = useState(todayLocalDate)
   const [currency, setCurrency] = useState(defaultCurrency)
   const nameRef = useRef(null)
 
@@ -256,10 +260,10 @@ function AddItemRow({ onAdd, defaultCurrency, t }: AddItemRowProps) {
       persons: parseInt(persons) || null,
       days: parseInt(days) || null,
       note: note.trim() || null,
-      expense_date: expenseDate || null,
+      expense_date: expenseDate || todayLocalDate(),
       currency,
     })
-    setName(''); setPrice(''); setPersons(''); setDays(''); setNote(''); setExpenseDate('')
+    setName(''); setPrice(''); setPersons(''); setDays(''); setNote(''); setExpenseDate(todayLocalDate())
     setTimeout(() => nameRef.current?.focus(), 50)
   }
 
