@@ -72,7 +72,10 @@ export default function SharedTripPage() {
 
   const { trip, days, assignments, dayNotes, places, reservations, accommodations, packing, budget, budgetCategories, categories, permissions, collab } = data
   const categoryCurrencyMap = Object.fromEntries((budgetCategories || []).map((c: { category: string; currency: string }) => [c.category, c.currency]))
-  const getSharedCatCurrency = (cat: string) => categoryCurrencyMap[cat] || trip.currency || 'EUR'
+  const getSharedItemCurrency = (item: { category?: string | null; currency?: string | null }) => {
+    const cat = item.category || t('shared.other')
+    return item.currency || categoryCurrencyMap[cat] || trip.currency || 'EUR'
+  }
   const sortedDays = [...(days || [])].sort((a: any, b: any) => a.day_number - b.day_number)
 
   // Map places
@@ -325,10 +328,9 @@ export default function SharedTripPage() {
         {/* Budget */}
         {activeTab === 'budget' && (budget || []).length > 0 && (() => {
           const grouped = (budget || []).reduce((g: any, i: any) => { const c = i.category || t('shared.other'); (g[c] = g[c] || []).push(i); return g }, {})
-          const totalsByCurrency = Object.entries(grouped).reduce((acc: Record<string, number>, [cat, items]: [string, any]) => {
-            const cur = getSharedCatCurrency(cat)
-            const sub = items.reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0)
-            acc[cur] = (acc[cur] || 0) + sub
+          const totalsByCurrency = (budget || []).reduce((acc: Record<string, number>, item: any) => {
+            const cur = getSharedItemCurrency(item)
+            acc[cur] = (acc[cur] || 0) + (parseFloat(item.total_price) || 0)
             return acc
           }, {})
           return (
@@ -344,12 +346,19 @@ export default function SharedTripPage() {
                 <div key={cat} style={{ background: 'var(--bg-card, white)', borderRadius: 12, border: '1px solid var(--border-faint, #e5e7eb)', overflow: 'hidden' }}>
                   <div style={{ padding: '10px 16px', background: '#f9fafb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f3f4f6' }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{cat}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>{items.reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0).toLocaleString(locale, { minimumFractionDigits: 2 })} {getSharedCatCurrency(cat)}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>
+                      {items.reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0).toLocaleString(locale, { minimumFractionDigits: 2 })}
+                      {' '}
+                      {[...new Set(items.map((i: any) => getSharedItemCurrency(i)))].join(' / ')}
+                    </span>
                   </div>
                   {items.map((item: any) => (
                     <div key={item.id} style={{ padding: '8px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #fafafa' }}>
                       <span style={{ fontSize: 13, color: '#111827' }}>{item.name}</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{item.total_price ? Number(item.total_price).toLocaleString(locale, { minimumFractionDigits: 2 }) : '—'}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+                        {item.total_price ? Number(item.total_price).toLocaleString(locale, { minimumFractionDigits: 2 }) : '—'}
+                        {' '}{getSharedItemCurrency(item)}
+                      </span>
                     </div>
                   ))}
                 </div>

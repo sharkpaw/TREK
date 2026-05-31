@@ -104,7 +104,117 @@ const SYMBOLS = {
   PEN: 'S/.', ARS: 'AR$',
 }
 const CATEGORY_CURRENCIES = ['EUR', 'USD', 'TRY'] as const
-const CATEGORY_CURRENCY_OPTIONS = CATEGORY_CURRENCIES.map(c => ({ value: c, label: `${c} (${SYMBOLS[c] || c})` }))
+const CURRENCY_LABEL_KEYS: Record<string, string> = {
+  TRY: 'budget.currency.try',
+  EUR: 'budget.currency.eur',
+  USD: 'budget.currency.usd',
+}
+const DISPLAY_CURRENCY_ORDER = ['TRY', 'EUR', 'USD'] as const
+
+function currencySelectOptions(t: (key: string) => string) {
+  return CATEGORY_CURRENCIES.map(c => ({ value: c, label: t(CURRENCY_LABEL_KEYS[c]) }))
+}
+
+function sumItemsByCurrency(items: BudgetItem[], getItemCurrency: (item: BudgetItem) => string) {
+  const map = new Map<string, number>()
+  for (const item of items) {
+    const cur = getItemCurrency(item)
+    map.set(cur, (map.get(cur) || 0) + (item.total_price || 0))
+  }
+  return map
+}
+
+interface CurrencyPillsProps {
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  compact?: boolean
+  t: (key: string) => string
+}
+
+function CurrencyPills({ value, onChange, disabled = false, compact = false, t }: CurrencyPillsProps) {
+  return (
+    <div style={{ display: 'inline-flex', gap: compact ? 2 : 4, flexWrap: 'wrap' }}>
+      {DISPLAY_CURRENCY_ORDER.map(code => {
+        const active = value === code
+        return (
+          <button
+            key={code}
+            type="button"
+            disabled={disabled}
+            onClick={() => !disabled && onChange(code)}
+            title={t(CURRENCY_LABEL_KEYS[code])}
+            style={{
+              appearance: 'none',
+              border: active ? '1px solid var(--accent)' : '1px solid var(--border-primary)',
+              background: active ? 'var(--accent)' : 'var(--bg-card)',
+              color: active ? 'var(--accent-text)' : 'var(--text-secondary)',
+              borderRadius: compact ? 6 : 8,
+              padding: compact ? '2px 6px' : '4px 8px',
+              fontSize: compact ? 11 : 12,
+              fontWeight: 600,
+              cursor: disabled ? 'default' : 'pointer',
+              fontFamily: 'inherit',
+              lineHeight: 1.2,
+              opacity: disabled && !active ? 0.55 : 1,
+            }}
+          >
+            {t(CURRENCY_LABEL_KEYS[code])}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+interface DisplayCurrencyBarProps {
+  value: string
+  onChange: (value: string) => void
+  totalsByCurrency: Map<string, number>
+  t: (key: string) => string
+  fmt: (v: number, cur: string) => string
+  theme: ReturnType<typeof widgetTheme>
+}
+
+function DisplayCurrencyBar({ value, onChange, totalsByCurrency, t, fmt, theme }: DisplayCurrencyBarProps) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 10, color: theme.faint, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>
+        {t('budget.displayCurrency')}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {DISPLAY_CURRENCY_ORDER.map(code => {
+          const total = totalsByCurrency.get(code) || 0
+          const active = value === code
+          return (
+            <button
+              key={code}
+              type="button"
+              onClick={() => onChange(code)}
+              style={{
+                appearance: 'none',
+                border: active ? `1px solid ${theme.iconBorder}` : `1px solid ${theme.divider}`,
+                background: active ? theme.iconBg : 'transparent',
+                borderRadius: 10,
+                padding: '8px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                color: theme.text,
+              }}
+            >
+              <span style={{ fontSize: 12, fontWeight: active ? 700 : 500 }}>{t(CURRENCY_LABEL_KEYS[code])}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: active ? theme.text : theme.sub }}>{fmt(total, code)}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 const PIE_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#06b6d4', '#84cc16', '#a855f7']
 
 const fmtNum = (v, locale, cur) => {
@@ -178,22 +288,34 @@ function InlineEditCell({ value, onSave, type = 'text', style = {}, placeholder 
 
 // ── Add Item Row ─────────────────────────────────────────────────────────────
 interface AddItemRowProps {
-  onAdd: (data: { name: string; total_price: number; persons: number | null; days: number | null; note: string | null; expense_date: string | null }) => void
+  onAdd: (data: { name: string; total_price: number; persons: number | null; days: number | null; note: string | null; expense_date: string | null; currency: string }) => void
+  defaultCurrency: string
   t: (key: string) => string
 }
 
-function AddItemRow({ onAdd, t }: AddItemRowProps) {
+function AddItemRow({ onAdd, defaultCurrency, t }: AddItemRowProps) {
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [persons, setPersons] = useState('')
   const [days, setDays] = useState('')
   const [note, setNote] = useState('')
   const [expenseDate, setExpenseDate] = useState('')
+  const [currency, setCurrency] = useState(defaultCurrency)
   const nameRef = useRef(null)
+
+  useEffect(() => { setCurrency(defaultCurrency) }, [defaultCurrency])
 
   const handleAdd = () => {
     if (!name.trim()) return
-    onAdd({ name: name.trim(), total_price: parseFloat(String(price).replace(',', '.')) || 0, persons: parseInt(persons) || null, days: parseInt(days) || null, note: note.trim() || null, expense_date: expenseDate || null })
+    onAdd({
+      name: name.trim(),
+      total_price: parseFloat(String(price).replace(',', '.')) || 0,
+      persons: parseInt(persons) || null,
+      days: parseInt(days) || null,
+      note: note.trim() || null,
+      expense_date: expenseDate || null,
+      currency,
+    })
     setName(''); setPrice(''); setPersons(''); setDays(''); setNote(''); setExpenseDate('')
     setTimeout(() => nameRef.current?.focus(), 50)
   }
@@ -210,6 +332,9 @@ function AddItemRow({ onAdd, t }: AddItemRowProps) {
         <input value={price} onChange={e => setPrice(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
           onPaste={e => { e.preventDefault(); let t = e.clipboardData.getData('text').trim().replace(/[^\d.,-]/g, ''); const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.'), dp = Math.max(lc, ld); if (dp > -1) { t = t.substring(0, dp).replace(/[.,]/g, '') + '.' + t.substring(dp + 1) } else { t = t.replace(/[.,]/g, '') } setPrice(t) }}
           placeholder="0,00" inputMode="decimal" style={{ ...inp, textAlign: 'center' }} />
+      </td>
+      <td style={{ padding: '4px 6px', minWidth: 120 }}>
+        <CurrencyPills value={currency} onChange={setCurrency} compact t={t} />
       </td>
       <td className="hidden sm:table-cell" style={{ padding: '4px 6px', textAlign: 'center' }}>
         <input value={persons} onChange={e => setPersons(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
@@ -563,16 +688,32 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const [editingCat, setEditingCat] = useState(null) // { name, value }
   const [settlement, setSettlement] = useState<{ balances: any[]; flows: any[] } | null>(null)
   const [settlementOpen, setSettlementOpen] = useState(false)
+  const [displayCurrency, setDisplayCurrency] = useState(() => {
+    if (typeof window === 'undefined') return 'TRY'
+    return localStorage.getItem(`budget_display_currency_${tripId}`) || 'TRY'
+  })
   const canEdit = can('budget_edit', trip)
+  const currencyOptions = useMemo(() => currencySelectOptions(t), [t])
 
   const defaultCurrency = useMemo(() => {
-    const tripCur = (trip?.currency || 'EUR').toUpperCase()
-    return (CATEGORY_CURRENCIES as readonly string[]).includes(tripCur) ? tripCur : 'EUR'
+    const tripCur = (trip?.currency || 'TRY').toUpperCase()
+    return (CATEGORY_CURRENCIES as readonly string[]).includes(tripCur) ? tripCur : 'TRY'
   }, [trip?.currency])
+
+  useEffect(() => {
+    localStorage.setItem(`budget_display_currency_${tripId}`, displayCurrency)
+  }, [tripId, displayCurrency])
 
   const getCatCurrency = useCallback((cat: string) => {
     const stored = budgetCategories[cat]
     if (stored && (CATEGORY_CURRENCIES as readonly string[]).includes(stored)) return stored
+    return defaultCurrency
+  }, [budgetCategories, defaultCurrency])
+
+  const getItemCurrency = useCallback((item: BudgetItem) => {
+    const cat = item.category || 'Other'
+    const raw = item.currency || budgetCategories[cat]
+    if (raw && (CATEGORY_CURRENCIES as readonly string[]).includes(raw)) return raw
     return defaultCurrency
   }, [budgetCategories, defaultCurrency])
 
@@ -616,28 +757,26 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     }
     return map.get(cat)!
   }, [])
-  const grandTotal = (budgetItems || []).reduce((s, i) => s + (i.total_price || 0), 0)
-  const totalsByCurrency = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const cat of categoryNames) {
-      const cur = getCatCurrency(cat)
-      const sub = (grouped.get(cat) || []).reduce((s, x) => s + (x.total_price || 0), 0)
-      map.set(cur, (map.get(cur) || 0) + sub)
-    }
-    return map
-  }, [categoryNames, grouped, getCatCurrency])
-  const primaryCurrency = totalsByCurrency.size === 1
-    ? Array.from(totalsByCurrency.keys())[0]
-    : defaultCurrency
+  const totalsByCurrency = useMemo(
+    () => sumItemsByCurrency(budgetItems || [], getItemCurrency),
+    [budgetItems, getItemCurrency],
+  )
+  const primaryCurrency = totalsByCurrency.has(displayCurrency)
+    ? displayCurrency
+    : (totalsByCurrency.size === 1 ? Array.from(totalsByCurrency.keys())[0] : defaultCurrency)
 
-  const pieSegments = useMemo(() =>
-    categoryNames.map((cat) => ({
-      name: cat,
-      value: (grouped.get(cat) || []).reduce((s, x) => s + (x.total_price || 0), 0),
-      color: categoryColor(cat),
-      currency: getCatCurrency(cat),
-    })).filter(s => s.value > 0)
-  , [grouped, categoryNames, getCatCurrency, categoryColor])
+  const pieSegments = useMemo(() => {
+    const map = new Map<string, { name: string; value: number; color: string; currency: string }>()
+    for (const item of budgetItems || []) {
+      const cur = getItemCurrency(item)
+      if (cur !== displayCurrency) continue
+      const cat = item.category || 'Other'
+      const existing = map.get(cat)
+      if (existing) existing.value += item.total_price || 0
+      else map.set(cat, { name: cat, value: item.total_price || 0, color: categoryColor(cat), currency: cur })
+    }
+    return Array.from(map.values()).filter(s => s.value > 0)
+  }, [budgetItems, getItemCurrency, displayCurrency, categoryColor])
 
   const handleAddItem = async (category, data) => { try { await addBudgetItem(tripId, { ...data, category }) } catch {} }
   const handleUpdateField = async (id, field, value) => { try { await updateBudgetItem(tripId, id, { [field]: value }) } catch {} }
@@ -672,15 +811,15 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     const rows = [header.join(sep)]
 
     for (const cat of categoryNames) {
-      const catCurrency = getCatCurrency(cat)
-      const d = currencyDecimals(catCurrency)
-      const fmtPrice = (v: number | null | undefined) => v != null ? v.toFixed(d) : ''
       for (const item of (grouped.get(cat) || [])) {
+        const itemCurrency = getItemCurrency(item)
+        const d = currencyDecimals(itemCurrency)
+        const fmtPrice = (v: number | null | undefined) => v != null ? v.toFixed(d) : ''
         const pp = calcPP(item.total_price, item.persons)
         const pd = calcPD(item.total_price, item.days)
         const ppd = calcPPD(item.total_price, item.persons, item.days)
         rows.push([
-          esc(item.category), esc(catCurrency), esc(item.name), esc(fmtDate(item.expense_date || '')),
+          esc(item.category), esc(itemCurrency), esc(item.name), esc(fmtDate(item.expense_date || '')),
           fmtPrice(item.total_price), item.persons ?? '', item.days ?? '',
           fmtPrice(pp), fmtPrice(pd), fmtPrice(ppd),
           esc(item.note || ''),
@@ -728,7 +867,6 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   }
 
   // ── Main Layout ──────────────────────────────────────────────────────────
-  const totalBudget = budgetItems.reduce((s, x) => s + (x.total_price || 0), 0)
   return (
     <div>
       <div style={{ padding: '24px 28px 0' }} className="max-md:!px-4 max-md:!pt-4">
@@ -741,6 +879,12 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
             {t('budget.title')}
           </h2>
           <div className="flex flex-wrap max-md:!w-full max-md:!mt-2" style={{ alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 }}>
+            <div className="max-md:!w-full" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                {t('budget.displayCurrency')}
+              </span>
+              <CurrencyPills value={displayCurrency} onChange={setDisplayCurrency} t={t} />
+            </div>
             {canEdit && (
               <div className="max-md:!w-full" style={{ display: 'flex', gap: 6, width: 260 }}>
                 <input
@@ -786,7 +930,10 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
           {categoryNames.map((cat, ci) => {
             const items = grouped.get(cat) || []
             const catCurrency = getCatCurrency(cat)
-            const subtotal = items.reduce((s, x) => s + (x.total_price || 0), 0)
+            const subtotalsByCurrency = sumItemsByCurrency(items, getItemCurrency)
+            const subtotalLabel = Array.from(subtotalsByCurrency.entries())
+              .map(([cur, val]) => fmt(val, cur))
+              .join(' · ')
             const color = categoryColor(cat)
 
             return (
@@ -853,16 +1000,16 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 110 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ width: 130 }} onClick={e => e.stopPropagation()} title={t('budget.categoryCurrency')}>
                       <CustomSelect
                         value={catCurrency}
                         onChange={cur => updateBudgetCategoryCurrency(tripId, cat, cur)}
                         disabled={!canEdit}
-                        options={CATEGORY_CURRENCY_OPTIONS}
+                        options={currencyOptions}
                         size="sm"
                       />
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>{fmt(subtotal, catCurrency)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>{subtotalLabel || fmt(0, catCurrency)}</span>
                     {canEdit && (
                       <button onClick={() => handleDeleteCategory(cat)} title={t('budget.deleteCategory')}
                         style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '3px 6px', display: 'flex', alignItems: 'center', opacity: 0.6 }}
@@ -880,6 +1027,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                       <tr>
                         <th style={{ ...th, textAlign: 'left', minWidth: 120 }}>{t('budget.table.name')}</th>
                         <th style={{ ...th, minWidth: 75 }}>{t('budget.table.total')}</th>
+                        <th style={{ ...th, minWidth: 120 }}>{t('budget.table.currency')}</th>
                         <th className="hidden sm:table-cell" style={{ ...th, minWidth: 160 }}>{t('budget.table.persons')}</th>
                         <th className="hidden sm:table-cell" style={{ ...th, minWidth: 55 }}>{t('budget.table.days')}</th>
                         <th className="hidden md:table-cell" style={{ ...th, minWidth: 100 }}>{t('budget.table.perPerson')}</th>
@@ -892,6 +1040,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                     </thead>
                     <tbody>
                       {items.map(item => {
+                        const itemCurrency = getItemCurrency(item)
                         const pp = calcPP(item.total_price, item.persons)
                         const pd = calcPD(item.total_price, item.days)
                         const ppd = calcPPD(item.total_price, item.persons, item.days)
@@ -949,7 +1098,16 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                               </div>
                             </td>
                             <td style={{ ...td, textAlign: 'center' }}>
-                              <InlineEditCell value={item.total_price} type="number" decimals={currencyDecimals(catCurrency)} onSave={v => handleUpdateField(item.id, 'total_price', v)} style={{ textAlign: 'center' }} placeholder={currencyDecimals(catCurrency) === 0 ? '0' : '0,00'} locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
+                              <InlineEditCell value={item.total_price} type="number" decimals={currencyDecimals(itemCurrency)} onSave={v => handleUpdateField(item.id, 'total_price', v)} style={{ textAlign: 'center' }} placeholder={currencyDecimals(itemCurrency) === 0 ? '0' : '0,00'} locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
+                            </td>
+                            <td style={{ ...td, minWidth: 120 }}>
+                              <CurrencyPills
+                                value={itemCurrency}
+                                onChange={cur => handleUpdateField(item.id, 'currency', cur)}
+                                disabled={!canEdit}
+                                compact
+                                t={t}
+                              />
                             </td>
                             <td className="hidden sm:table-cell" style={{ ...td, textAlign: 'center', position: 'relative' }}>
                               {hasMultipleMembers ? (
@@ -967,9 +1125,9 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                             <td className="hidden sm:table-cell" style={{ ...td, textAlign: 'center' }}>
                               <InlineEditCell value={item.days} type="number" decimals={0} onSave={v => handleUpdateField(item.id, 'days', v != null ? parseInt(v) || null : null)} style={{ textAlign: 'center' }} placeholder="-" locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
                             </td>
-                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pp != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pp != null ? fmt(pp, catCurrency) : '-'}</td>
-                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pd != null ? fmt(pd, catCurrency) : '-'}</td>
-                            <td className="hidden lg:table-cell" style={{ ...td, textAlign: 'center', color: ppd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{ppd != null ? fmt(ppd, catCurrency) : '-'}</td>
+                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pp != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pp != null ? fmt(pp, itemCurrency) : '-'}</td>
+                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pd != null ? fmt(pd, itemCurrency) : '-'}</td>
+                            <td className="hidden lg:table-cell" style={{ ...td, textAlign: 'center', color: ppd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{ppd != null ? fmt(ppd, itemCurrency) : '-'}</td>
                             <td className="hidden sm:table-cell" style={{ ...td, padding: '2px 6px', width: 90, maxWidth: 90, textAlign: 'center' }}>
                               {canEdit ? (
                                 <div style={{ maxWidth: 90, margin: '0 auto' }}>
@@ -992,7 +1150,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                           </tr>
                         )
                       })}
-                      {canEdit && <AddItemRow onAdd={data => handleAddItem(cat, data)} t={t} />}
+                      {canEdit && <AddItemRow onAdd={data => handleAddItem(cat, data)} defaultCurrency={catCurrency} t={t} />}
                     </tbody>
                   </table>
                 </div>
@@ -1024,27 +1182,37 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               </div>
             </div>
 
-            {Array.from(totalsByCurrency.entries()).map(([cur, total], idx) => {
-              const decimals = currencyDecimals(cur)
+            <DisplayCurrencyBar
+              value={displayCurrency}
+              onChange={setDisplayCurrency}
+              totalsByCurrency={totalsByCurrency}
+              t={t}
+              fmt={fmt}
+              theme={theme}
+            />
+
+            {(() => {
+              const total = totalsByCurrency.get(displayCurrency) || 0
+              const decimals = currencyDecimals(displayCurrency)
               const full = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
               const sep = (0.1).toLocaleString(locale).replace(/\d/g, '')
               const [integerPart, decimalPart] = decimals > 0 ? full.split(sep) : [full, '']
               return (
-                <div key={cur} style={{ marginTop: idx > 0 ? 14 : 0 }}>
+                <div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, letterSpacing: '-0.03em', lineHeight: 1 }}>
-                    <span style={{ fontSize: idx === 0 ? 38 : 28, fontWeight: 700 }}>{integerPart}</span>
-                    {decimalPart && <span style={{ fontSize: idx === 0 ? 22 : 18, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
-                    <span style={{ fontSize: idx === 0 ? 22 : 18, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[cur] || cur}</span>
+                    <span style={{ fontSize: 38, fontWeight: 700 }}>{integerPart}</span>
+                    {decimalPart && <span style={{ fontSize: 22, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
+                    <span style={{ fontSize: 22, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[displayCurrency] || displayCurrency}</span>
                   </div>
                   <div style={{ color: theme.faint, fontSize: 12, marginTop: 8, fontWeight: 500, letterSpacing: '0.04em' }}>
-                    <span>{cur}</span>
+                    <span>{t(CURRENCY_LABEL_KEYS[displayCurrency])}</span>
                   </div>
                 </div>
               )
-            })}
+            })()}
 
             {hasMultipleMembers && (budgetItems || []).some(i => i.members?.length > 0) && (
-              <PerPersonInline tripId={tripId} budgetItems={budgetItems} currency={primaryCurrency} locale={locale} grandTotal={totalsByCurrency.get(primaryCurrency) || grandTotal} theme={theme} />
+              <PerPersonInline tripId={tripId} budgetItems={budgetItems} currency={primaryCurrency} locale={locale} grandTotal={totalsByCurrency.get(primaryCurrency) || 0} theme={theme} />
             )}
 
             {/* Settlement dropdown inside the total card */}
@@ -1141,7 +1309,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
           </div>
 
           {pieSegments.length > 0 && (() => {
-            const decimals = currencyDecimals(primaryCurrency)
+            const decimals = currencyDecimals(displayCurrency)
             const total = pieSegments.reduce((s, x) => s + x.value, 0)
             const mixedCurrencies = totalsByCurrency.size > 1
             const totalFmt = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
@@ -1209,7 +1377,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                       {mixedCurrencies && <span style={{ fontSize: 14, fontWeight: 600, color: theme.sub }}>{t('budget.mixedCurrencies')}</span>}
                     </div>
                     {!mixedCurrencies && (
-                      <div style={{ fontSize: 10.5, color: theme.faint, fontWeight: 500, marginTop: 2 }}>{primaryCurrency}</div>
+                      <div style={{ fontSize: 10.5, color: theme.faint, fontWeight: 500, marginTop: 2 }}>{t(CURRENCY_LABEL_KEYS[displayCurrency])}</div>
                     )}
                   </div>
                 </div>
