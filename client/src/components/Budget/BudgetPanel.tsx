@@ -67,6 +67,21 @@ function hexLighten(hex: string, amount: number): string {
   const [r, g, b] = m.map(x => parseInt(x, 16))
   return `#${[mix(r), mix(g), mix(b)].map(v => v.toString(16).padStart(2, '0')).join('')}`
 }
+
+function categoryHeaderStyle(color: string, isDark: boolean) {
+  if (isDark) {
+    return {
+      background: `linear-gradient(90deg, ${color}30 0%, #111 22%, #0a0a0a 100%)`,
+      color: '#fff',
+      borderBottom: `1px solid ${color}55`,
+    }
+  }
+  return {
+    background: `linear-gradient(90deg, ${color}14 0%, var(--bg-card) 30%)`,
+    color: 'var(--text-primary)',
+    borderBottom: '1px solid var(--border-primary)',
+  }
+}
 import CustomSelect from '../shared/CustomSelect'
 import { budgetApi } from '../../api/client'
 import { CustomDatePicker } from '../shared/CustomDateTimePicker'
@@ -132,7 +147,14 @@ interface TotalWithCurrencyProps {
 
 function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, locale, canEdit, editTooltip }: TotalWithCurrencyProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 110 }}>
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4, minWidth: 118,
+        padding: '2px 4px 2px 6px', borderRadius: 8,
+        border: '1px solid var(--border-primary)', background: 'var(--bg-input)',
+      }}
+      onClick={e => e.stopPropagation()}
+    >
       <div style={{ flex: 1, minWidth: 0 }}>
         <InlineEditCell
           value={amount}
@@ -146,7 +168,7 @@ function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, l
           readOnly={!canEdit}
         />
       </div>
-      <div style={{ width: 52, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+      <div style={{ width: 46, flexShrink: 0 }}>
         <CustomSelect
           value={currency}
           onChange={onChangeCurrency}
@@ -267,20 +289,23 @@ function AddItemRow({ onAdd, defaultCurrency, t }: AddItemRowProps) {
     setTimeout(() => nameRef.current?.focus(), 50)
   }
 
-  const inp = { border: '1px solid var(--border-primary)', borderRadius: 4, padding: '4px 6px', fontSize: 13, outline: 'none', fontFamily: 'inherit', width: '100%', background: 'var(--bg-input)', color: 'var(--text-primary)' }
+  const inp = {
+    border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 8px', fontSize: 13,
+    outline: 'none', fontFamily: 'inherit', width: '100%', background: 'var(--bg-input)', color: 'var(--text-primary)',
+  }
 
   return (
-    <tr style={{ background: 'var(--bg-secondary)' }}>
+    <tr style={{ background: 'var(--bg-secondary)', boxShadow: 'inset 0 1px 0 0 var(--border-primary)' }}>
       <td style={{ padding: '4px 6px' }}>
         <input ref={nameRef} value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
           placeholder={t('budget.newEntry')} style={inp} />
       </td>
       <td style={{ padding: '4px 6px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px 2px 6px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-input)' }}>
           <input value={price} onChange={e => setPrice(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
             onPaste={e => { e.preventDefault(); let t = e.clipboardData.getData('text').trim().replace(/[^\d.,-]/g, ''); const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.'), dp = Math.max(lc, ld); if (dp > -1) { t = t.substring(0, dp).replace(/[.,]/g, '') + '.' + t.substring(dp + 1) } else { t = t.replace(/[.,]/g, '') } setPrice(t) }}
-            placeholder="0,00" inputMode="decimal" style={{ ...inp, textAlign: 'center', flex: 1, minWidth: 0 }} />
-          <div style={{ width: 52, flexShrink: 0 }}>
+            placeholder="0,00" inputMode="decimal" style={{ ...inp, textAlign: 'center', flex: 1, minWidth: 0, border: 'none', background: 'transparent', padding: '4px 2px' }} />
+          <div style={{ width: 46, flexShrink: 0 }}>
             <CustomSelect value={currency} onChange={setCurrency} options={TOTAL_CURRENCY_OPTIONS} size="sm" />
           </div>
         </div>
@@ -306,8 +331,12 @@ function AddItemRow({ onAdd, defaultCurrency, t }: AddItemRowProps) {
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'center' }}>
         <button onClick={handleAdd} disabled={!name.trim()} title={t('reservations.add')}
-          style={{ background: name.trim() ? 'var(--text-primary)' : 'var(--border-primary)', border: 'none', borderRadius: 4, color: 'var(--bg-primary)',
-            cursor: name.trim() ? 'pointer' : 'default', padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }}>
+          style={{
+            background: name.trim() ? 'var(--accent)' : 'var(--bg-tertiary)', border: 'none', borderRadius: 8,
+            color: name.trim() ? 'var(--accent-text)' : 'var(--text-faint)',
+            cursor: name.trim() ? 'pointer' : 'default', padding: '6px 10px', display: 'inline-flex', alignItems: 'center',
+            transition: 'opacity 0.15s',
+          }}>
           <Plus size={14} />
         </button>
       </td>
@@ -806,8 +835,20 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     URL.revokeObjectURL(url)
   }
 
-  const th = { padding: '6px 8px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '2px solid var(--border-primary)', whiteSpace: 'nowrap', background: 'var(--bg-secondary)' }
-  const td = { padding: '2px 6px', borderBottom: '1px solid var(--border-secondary)', fontSize: 13, verticalAlign: 'middle', color: 'var(--text-primary)' }
+  const th = {
+    padding: '8px 10px', textAlign: 'center' as const, fontSize: 10, fontWeight: 700,
+    color: 'var(--text-faint)', textTransform: 'uppercase' as const, letterSpacing: '0.07em',
+    borderBottom: '1px solid var(--border-primary)', whiteSpace: 'nowrap' as const,
+    background: 'var(--bg-secondary)',
+  }
+  const td = {
+    padding: '7px 8px', borderBottom: '1px solid var(--border-secondary)',
+    fontSize: 13, verticalAlign: 'middle' as const, color: 'var(--text-primary)',
+  }
+  const calcBadge = {
+    display: 'inline-block', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' as const,
+    padding: '3px 8px', borderRadius: 999, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+  }
 
   // ── Empty State ──────────────────────────────────────────────────────────
   if (!budgetItems || budgetItems.length === 0) {
@@ -900,9 +941,14 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
 
             return (
               <div key={cat} data-drag-cat={cat} style={{
-                  marginBottom: 16, opacity: dragCat === cat ? 0.4 : 1,
-                  transition: 'opacity 0.15s',
+                  marginBottom: 20, opacity: dragCat === cat ? 0.4 : 1,
+                  transition: 'opacity 0.15s, box-shadow 0.2s',
                   position: 'relative',
+                  borderRadius: 14,
+                  border: '1px solid var(--border-primary)',
+                  background: 'var(--bg-card)',
+                  overflow: 'hidden',
+                  boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.25)' : '0 2px 12px rgba(15,23,42,0.06)',
                 }}
                 onDragOver={e => {
                   if (!dragCat || dragCat === cat || dragItem) return
@@ -927,18 +973,22 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               >
                 {dragOverCat === cat && <div style={{ position: 'absolute', top: -2, left: 0, right: 0, height: 4, background: 'var(--accent)', borderRadius: 2, zIndex: 10 }} />}
                 <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#000000', color: '#fff',
-                  borderRadius: '10px 10px 0 0', padding: '9px 14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '11px 16px',
+                  ...categoryHeaderStyle(color, isDark),
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                     {canEdit && (
                       <div draggable onDragStart={e => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-budget-cat', cat); setDragCat(cat) }}
                         onDragEnd={() => { setDragCat(null); setDragOverCat(null) }}
-                        style={{ cursor: 'grab', display: 'flex', alignItems: 'center', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+                        style={{ cursor: 'grab', display: 'flex', alignItems: 'center', color: isDark ? 'rgba(255,255,255,0.4)' : 'var(--text-faint)', flexShrink: 0 }}>
                         <GripVertical size={14} />
                       </div>
                     )}
-                    <div style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
+                    <div style={{
+                      width: 12, height: 12, borderRadius: 4, background: color, flexShrink: 0,
+                      boxShadow: `0 0 0 2px ${color}33`,
+                    }} />
                     {canEdit && editingCat?.name === cat ? (
                       <input
                         autoFocus
@@ -946,34 +996,44 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                         onChange={e => setEditingCat({ ...editingCat, value: e.target.value })}
                         onBlur={() => { handleRenameCategory(cat, editingCat.value); setEditingCat(null) }}
                         onKeyDown={e => { if (e.key === 'Enter') { handleRenameCategory(cat, editingCat.value); setEditingCat(null) } if (e.key === 'Escape') setEditingCat(null) }}
-                        style={{ fontWeight: 600, fontSize: 13, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 4, color: '#fff', padding: '1px 6px', outline: 'none', fontFamily: 'inherit', width: '100%' }}
+                        style={{ fontWeight: 600, fontSize: 13, background: isDark ? 'rgba(255,255,255,0.15)' : 'var(--bg-hover)', border: 'none', borderRadius: 6, color: 'inherit', padding: '2px 8px', outline: 'none', fontFamily: 'inherit', width: '100%' }}
                       />
                     ) : (
                       <>
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>{cat}</span>
+                        <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em' }}>{cat}</span>
                         {canEdit && (
                           <button onClick={() => setEditingCat({ name: cat, value: cat })}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex', padding: 1 }}
-                            onMouseEnter={e => e.currentTarget.style.color = '#fff'} onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}>
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? 'rgba(255,255,255,0.45)' : 'var(--text-faint)', display: 'flex', padding: 1 }}
+                            onMouseEnter={e => e.currentTarget.style.color = isDark ? '#fff' : 'var(--text-primary)'} onMouseLeave={e => e.currentTarget.style.color = isDark ? 'rgba(255,255,255,0.45)' : 'var(--text-faint)'}>
                             <Pencil size={10} />
                           </button>
                         )}
                       </>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>{subtotalLabel || fmt(0, getCatCurrency(cat))}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                      padding: '5px 12px', borderRadius: 999,
+                      background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.06)',
+                      color: isDark ? '#fff' : 'var(--text-primary)',
+                      border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid var(--border-secondary)',
+                    }}>{subtotalLabel || fmt(0, getCatCurrency(cat))}</span>
                     {canEdit && (
                       <button onClick={() => handleDeleteCategory(cat)} title={t('budget.deleteCategory')}
-                        style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '3px 6px', display: 'flex', alignItems: 'center', opacity: 0.6 }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.08)' : 'var(--bg-hover)', border: 'none', borderRadius: 8,
+                          color: isDark ? '#fff' : 'var(--text-muted)', cursor: 'pointer', padding: '5px 7px',
+                          display: 'flex', alignItems: 'center', opacity: 0.75, transition: 'opacity 0.15s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => { e.currentTarget.style.opacity = '0.75' }}>
                         <Trash2 size={13} />
                       </button>
                     )}
                   </div>
                 </div>
 
-                <div style={{ overflowX: 'auto', border: '1px solid var(--border-primary)', borderTop: 'none', borderRadius: '0 0 10px 10px' }}
+                <div style={{ overflowX: 'auto' }}
                   onDragOver={e => { if (dragCat) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
@@ -991,7 +1051,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map(item => {
+                      {items.map((item, rowIdx) => {
                         const itemCurrency = getItemCurrency(item)
                         const pp = calcPP(item.total_price, item.persons)
                         const pd = calcPD(item.total_price, item.days)
@@ -1000,9 +1060,10 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                         return (
                           <tr key={item.id}
                             style={{
-                              transition: 'background 0.1s, opacity 0.15s',
+                              transition: 'background 0.12s, opacity 0.15s',
                               opacity: dragItem === item.id ? 0.4 : 1,
                               boxShadow: dragOverItem === item.id ? 'inset 4px 0 0 0 var(--accent)' : 'none',
+                              background: rowIdx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent',
                             }}
                             onDragOver={e => {
                               if (dragCat && dragCat !== cat) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; return }
@@ -1021,8 +1082,8 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                                 setDragItem(null); setDragOverItem(null); setDragItemCat(null)
                               }
                             }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = rowIdx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent' }}>
                             <td style={td}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 {canEdit && (
@@ -1076,9 +1137,15 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                             <td className="hidden sm:table-cell" style={{ ...td, textAlign: 'center' }}>
                               <InlineEditCell value={item.days} type="number" decimals={0} onSave={v => handleUpdateField(item.id, 'days', v != null ? parseInt(v) || null : null)} style={{ textAlign: 'center' }} placeholder="-" locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
                             </td>
-                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pp != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pp != null ? fmt(pp, itemCurrency) : '-'}</td>
-                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pd != null ? fmt(pd, itemCurrency) : '-'}</td>
-                            <td className="hidden lg:table-cell" style={{ ...td, textAlign: 'center', color: ppd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{ppd != null ? fmt(ppd, itemCurrency) : '-'}</td>
+                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center' }}>
+                              {pp != null ? <span style={calcBadge}>{fmt(pp, itemCurrency)}</span> : <span style={{ color: 'var(--text-faint)' }}>-</span>}
+                            </td>
+                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center' }}>
+                              {pd != null ? <span style={calcBadge}>{fmt(pd, itemCurrency)}</span> : <span style={{ color: 'var(--text-faint)' }}>-</span>}
+                            </td>
+                            <td className="hidden lg:table-cell" style={{ ...td, textAlign: 'center' }}>
+                              {ppd != null ? <span style={calcBadge}>{fmt(ppd, itemCurrency)}</span> : <span style={{ color: 'var(--text-faint)' }}>-</span>}
+                            </td>
                             <td className="hidden sm:table-cell" style={{ ...td, padding: '2px 6px', width: 90, maxWidth: 90, textAlign: 'center' }}>
                               {canEdit ? (
                                 <div style={{ maxWidth: 90, margin: '0 auto' }}>
