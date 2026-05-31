@@ -129,13 +129,17 @@ export interface BudgetItem {
   id: number
   trip_id: number
   name: string
-  amount: number
-  currency: string
+  amount?: number
+  total_price?: number
+  currency?: string | null
   category: string | null
   paid_by: number | null
   persons: number
   members: BudgetMember[]
   expense_date: string | null
+  note?: string | null
+  days?: number | null
+  reservation_id?: number | null
 }
 
 export interface BudgetMember {

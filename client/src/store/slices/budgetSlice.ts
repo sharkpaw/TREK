@@ -57,6 +57,14 @@ export const createBudgetSlice = (set: SetState, get: GetState): BudgetSlice => 
   },
 
   updateBudgetItem: async (tripId, id, data) => {
+    const prevItems = get().budgetItems
+    if (data.currency !== undefined) {
+      set(state => ({
+        budgetItems: state.budgetItems.map(item =>
+          item.id === id ? { ...item, currency: data.currency } : item
+        ),
+      }))
+    }
     try {
       const result = await budgetApi.update(tripId, id, data)
       set(state => ({
@@ -67,6 +75,7 @@ export const createBudgetSlice = (set: SetState, get: GetState): BudgetSlice => 
       }
       return result.item
     } catch (err: unknown) {
+      if (data.currency !== undefined) set({ budgetItems: prevItems })
       throw new Error(getApiErrorMessage(err, 'Error updating budget item'))
     }
   },

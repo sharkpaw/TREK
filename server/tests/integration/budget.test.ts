@@ -578,4 +578,17 @@ describe('Budget category currency', () => {
       .send({ category: 'Ulaşım', currency: 'GBP' });
     expect(res.status).toBe(400);
   });
+
+  it('BUDGET-021 — PUT updates budget item currency', async () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    const item = createBudgetItem(testDb, trip.id, { name: 'Taxi', category: 'Ulaşım', total_price: 40 });
+
+    const res = await request(app)
+      .put(`/api/trips/${trip.id}/budget/${item.id}`)
+      .set('Cookie', authCookie(user.id))
+      .send({ currency: 'USD' });
+    expect(res.status).toBe(200);
+    expect(res.body.item.currency).toBe('USD');
+  });
 });
