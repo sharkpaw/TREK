@@ -2301,6 +2301,32 @@ function runMigrations(db: Database.Database): void {
         upd.run(allowed.has(cur) ? cur : 'EUR', r.trip_id, r.category);
       }
     },
+    // Budget item currency (EUR, USD, TRY per expense line)
+    () => {
+      try { db.exec('ALTER TABLE budget_items ADD COLUMN currency TEXT DEFAULT NULL'); } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      const allowed = new Set(['EUR', 'USD', 'TRY']);
+      db.prepare(`
+        UPDATE budget_items
+        SET currency = (
+          SELECT bco.currency FROM budget_category_order bco
+          WHERE bco.trip_id = budget_items.trip_id AND bco.category = budget_items.category
+        )
+        WHERE currency IS NULL
+      `).run();
+      const rows = db.prepare(`
+        SELECT bi.id, t.currency AS trip_currency
+        FROM budget_items bi
+        JOIN trips t ON t.id = bi.trip_id
+        WHERE bi.currency IS NULL OR bi.currency NOT IN ('EUR', 'USD', 'TRY')
+      `).all() as { id: number; trip_currency: string | null }[];
+      const upd = db.prepare('UPDATE budget_items SET currency = ? WHERE id = ?');
+      for (const r of rows) {
+        const cur = (r.trip_currency || 'EUR').toUpperCase();
+        upd.run(allowed.has(cur) ? cur : 'EUR', r.id);
+      }
+    },
   ];
 
   if (currentVersion < migrations.length) {

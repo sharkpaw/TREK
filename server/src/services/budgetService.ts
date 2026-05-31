@@ -29,6 +29,20 @@ function defaultCategoryCurrency(tripId: string | number): BudgetCategoryCurrenc
   return normalizeBudgetCategoryCurrency(trip?.currency, 'EUR');
 }
 
+function categoryCurrencyFor(tripId: string | number, category: string): BudgetCategoryCurrency {
+  const row = db.prepare('SELECT currency FROM budget_category_order WHERE trip_id = ? AND category = ?')
+    .get(tripId, category) as { currency?: string | null } | undefined;
+  return normalizeBudgetCategoryCurrency(row?.currency, defaultCategoryCurrency(tripId));
+}
+
+export function resolveBudgetItemCurrency(
+  tripId: string | number,
+  category: string,
+  itemCurrency?: string | null,
+): BudgetCategoryCurrency {
+  return normalizeBudgetCategoryCurrency(itemCurrency || categoryCurrencyFor(tripId, category), defaultCategoryCurrency(tripId));
+}
+
 function ensureCategoryOrder(tripId: string | number, category: string) {
   const catExists = db.prepare('SELECT 1 FROM budget_category_order WHERE trip_id = ? AND category = ?').get(tripId, category);
   if (catExists) return;
@@ -108,7 +122,7 @@ export function listBudgetItems(tripId: string | number) {
 
 export function createBudgetItem(
   tripId: string | number,
-  data: { category?: string; name: string; total_price?: number; persons?: number | null; days?: number | null; note?: string | null; expense_date?: string | null },
+  data: { category?: string; name: string; total_price?: number; persons?: number | null; days?: number | null; note?: string | null; expense_date?: string | null; currency?: string | null },
 ) {
   const maxOrder = db.prepare(
     'SELECT MAX(sort_order) as max FROM budget_items WHERE trip_id = ?'
@@ -117,9 +131,10 @@ export function createBudgetItem(
 
   const cat = data.category || 'Other';
   ensureCategoryOrder(tripId, cat);
+  const currency = resolveBudgetItemCurrency(tripId, cat, data.currency);
 
   const result = db.prepare(
-    'INSERT INTO budget_items (trip_id, category, name, total_price, persons, days, note, sort_order, expense_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO budget_items (trip_id, category, name, total_price, persons, days, note, sort_order, expense_date, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     tripId,
     cat,
@@ -130,6 +145,7 @@ export function createBudgetItem(
     data.note || null,
     sortOrder,
     data.expense_date || null,
+    currency,
   );
 
   const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(result.lastInsertRowid) as BudgetItem & { members?: BudgetItemMember[] };
@@ -151,10 +167,15 @@ export function linkBudgetItemToReservation(
 export function updateBudgetItem(
   id: string | number,
   tripId: string | number,
-  data: { category?: string; name?: string; total_price?: number; persons?: number | null; days?: number | null; note?: string | null; sort_order?: number; expense_date?: string | null },
+  data: { category?: string; name?: string; total_price?: number; persons?: number | null; days?: number | null; note?: string | null; sort_order?: number; expense_date?: string | null; currency?: string | null },
 ) {
-  const item = db.prepare('SELECT * FROM budget_items WHERE id = ? AND trip_id = ?').get(id, tripId);
+  const item = db.prepare('SELECT * FROM budget_items WHERE id = ? AND trip_id = ?').get(id, tripId) as BudgetItem | undefined;
   if (!item) return null;
+
+  const nextCategory = data.category || item.category;
+  const nextCurrency = data.currency !== undefined
+    ? resolveBudgetItemCurrency(tripId, nextCategory, data.currency)
+    : null;
 
   db.prepare(`
     UPDATE budget_items SET
@@ -165,7 +186,8 @@ export function updateBudgetItem(
       days = CASE WHEN ? THEN ? ELSE days END,
       note = CASE WHEN ? THEN ? ELSE note END,
       sort_order = CASE WHEN ? IS NOT NULL THEN ? ELSE sort_order END,
-      expense_date = CASE WHEN ? THEN ? ELSE expense_date END
+      expense_date = CASE WHEN ? THEN ? ELSE expense_date END,
+      currency = CASE WHEN ? IS NOT NULL THEN ? ELSE currency END
     WHERE id = ?
   `).run(
     data.category || null,
@@ -176,6 +198,7 @@ export function updateBudgetItem(
     data.note !== undefined ? 1 : 0, data.note !== undefined ? data.note : null,
     data.sort_order !== undefined ? 1 : null, data.sort_order !== undefined ? data.sort_order : 0,
     data.expense_date !== undefined ? 1 : 0, data.expense_date !== undefined ? (data.expense_date || null) : null,
+    nextCurrency !== null ? 1 : null, nextCurrency,
     id,
   );
 
