@@ -1,4 +1,5 @@
 import ReactDOM from 'react-dom'
+import type { CSSProperties } from 'react'
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import DOM from 'react-dom'
 import { useTripStore } from '../../store/tripStore'
@@ -122,11 +123,36 @@ const SYMBOLS = {
 }
 const CATEGORY_CURRENCIES = ['EUR', 'USD', 'TRY'] as const
 const TOTAL_CURRENCY_OPTIONS = [
-  { value: 'TRY', label: '₺' },
-  { value: 'EUR', label: '€' },
-  { value: 'USD', label: '$' },
+  { value: 'TRY', label: '₺', badge: 'TL' },
+  { value: 'EUR', label: '€', badge: 'EUR' },
+  { value: 'USD', label: '$', badge: 'USD' },
 ]
 const PANEL_CURRENCIES = ['TRY', 'EUR', 'USD'] as const
+
+const totalCellShell: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr auto',
+  alignItems: 'stretch',
+  minWidth: 148,
+  borderRadius: 10,
+  border: '1px solid var(--border-primary)',
+  background: 'var(--bg-input)',
+  overflow: 'visible',
+}
+
+function BudgetCurrencySelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <CustomSelect
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      options={TOTAL_CURRENCY_OPTIONS}
+      size="sm"
+      menuMinWidth={136}
+      borderless
+    />
+  )
+}
 
 function sumByItemCurrency(items: BudgetItem[], getItemCurrency: (item: BudgetItem) => string) {
   const map = new Map<string, number>()
@@ -186,21 +212,21 @@ interface TotalWithCurrencyProps {
 function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, locale, canEdit, editTooltip }: TotalWithCurrencyProps) {
   const symbol = SYMBOLS[currency] || currency
   return (
-    <div
-      style={{
-        display: 'flex', alignItems: 'center', gap: 4, minWidth: 128,
-        padding: '2px 4px 2px 6px', borderRadius: 8,
-        border: '1px solid var(--border-primary)', background: 'var(--bg-input)',
-      }}
-      onClick={e => e.stopPropagation()}
-    >
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+    <div style={totalCellShell} onClick={e => e.stopPropagation()}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '5px 8px', minWidth: 0,
+        borderRight: '1px solid var(--border-primary)',
+      }}>
         <InlineEditCell
           value={amount}
           type="number"
           decimals={currencyDecimals(currency)}
           onSave={onSaveAmount}
-          style={{ textAlign: 'right', flex: 1, minWidth: 0 }}
+          style={{
+            textAlign: 'right', flex: 1, minWidth: 0,
+            fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+          }}
           placeholder={currencyDecimals(currency) === 0 ? '0' : '0,00'}
           locale={locale}
           editTooltip={editTooltip}
@@ -209,22 +235,15 @@ function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, l
         <span
           aria-hidden
           style={{
-            fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)',
-            flexShrink: 0, lineHeight: 1, paddingRight: 2,
+            fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)',
+            flexShrink: 0, lineHeight: 1, minWidth: 14, textAlign: 'center',
           }}
         >
           {symbol}
         </span>
       </div>
-      <div style={{ width: 28, flexShrink: 0 }} title={currency}>
-        <CustomSelect
-          value={currency}
-          onChange={onChangeCurrency}
-          disabled={!canEdit}
-          options={TOTAL_CURRENCY_OPTIONS}
-          size="sm"
-          hideLabel
-        />
+      <div style={{ width: 56, flexShrink: 0 }} title={currency}>
+        <BudgetCurrencySelect value={currency} onChange={onChangeCurrency} disabled={!canEdit} />
       </div>
     </div>
   )
@@ -292,11 +311,15 @@ function InlineEditCell({ value, onSave, type = 'text', style = {}, placeholder 
     ? Number(value).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
     : (value || '')
 
+  const numberColor = type === 'number' && value != null && !Number.isNaN(Number(value))
+    ? 'var(--text-primary)'
+    : (display ? 'var(--text-primary)' : 'var(--text-faint)')
+
   return (
     <div onClick={() => { if (readOnly) return; setEditValue(value ?? ''); setEditing(true) }} title={readOnly ? undefined : editTooltip}
       style={{ cursor: readOnly ? 'default' : 'pointer', padding: '2px 4px', borderRadius: 4, minHeight: 22, display: 'flex', alignItems: 'center',
-        justifyContent: style?.textAlign === 'center' ? 'center' : 'flex-start', transition: 'background 0.15s',
-        color: display ? 'var(--text-primary)' : 'var(--text-faint)', fontSize: 13, ...style }}
+        justifyContent: style?.textAlign === 'center' ? 'center' : style?.textAlign === 'right' ? 'flex-end' : 'flex-start', transition: 'background 0.15s',
+        color: numberColor, fontSize: 13, ...style }}
       onMouseEnter={e => { if (!readOnly) e.currentTarget.style.background = 'var(--bg-hover)' }}
       onMouseLeave={e => { if (!readOnly) e.currentTarget.style.background = 'transparent' }}>
       {display || placeholder || '-'}
@@ -350,12 +373,25 @@ function AddItemRow({ onAdd, defaultCurrency, t }: AddItemRowProps) {
           placeholder={t('budget.newEntry')} style={inp} />
       </td>
       <td style={{ padding: '4px 6px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px 2px 6px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-input)' }}>
-          <input value={price} onChange={e => setPrice(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
-            onPaste={e => { e.preventDefault(); let t = e.clipboardData.getData('text').trim().replace(/[^\d.,-]/g, ''); const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.'), dp = Math.max(lc, ld); if (dp > -1) { t = t.substring(0, dp).replace(/[.,]/g, '') + '.' + t.substring(dp + 1) } else { t = t.replace(/[.,]/g, '') } setPrice(t) }}
-            placeholder="0,00" inputMode="decimal" style={{ ...inp, textAlign: 'center', flex: 1, minWidth: 0, border: 'none', background: 'transparent', padding: '4px 2px' }} />
-          <div style={{ width: 46, flexShrink: 0 }}>
-            <CustomSelect value={currency} onChange={setCurrency} options={TOTAL_CURRENCY_OPTIONS} size="sm" />
+        <div style={totalCellShell}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '5px 8px', minWidth: 0,
+            borderRight: '1px solid var(--border-primary)',
+          }}>
+            <input value={price} onChange={e => setPrice(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              onPaste={e => { e.preventDefault(); let t = e.clipboardData.getData('text').trim().replace(/[^\d.,-]/g, ''); const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.'), dp = Math.max(lc, ld); if (dp > -1) { t = t.substring(0, dp).replace(/[.,]/g, '') + '.' + t.substring(dp + 1) } else { t = t.replace(/[.,]/g, '') } setPrice(t) }}
+              placeholder="0,00" inputMode="decimal"
+              style={{
+                ...inp, textAlign: 'right', flex: 1, minWidth: 0, border: 'none', background: 'transparent',
+                padding: '2px 4px', fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+              }} />
+            <span aria-hidden style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', flexShrink: 0, minWidth: 14, textAlign: 'center' }}>
+              {SYMBOLS[currency] || currency}
+            </span>
+          </div>
+          <div style={{ width: 56, flexShrink: 0 }}>
+            <BudgetCurrencySelect value={currency} onChange={setCurrency} />
           </div>
         </div>
       </td>
@@ -1103,7 +1139,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                     <thead>
                       <tr>
                         <th style={{ ...th, textAlign: 'left', minWidth: 120 }}>{t('budget.table.name')}</th>
-                        <th style={{ ...th, minWidth: 130 }}>{t('budget.table.total')}</th>
+                        <th style={{ ...th, minWidth: 152 }}>{t('budget.table.total')}</th>
                         <th className="hidden sm:table-cell" style={{ ...th, minWidth: 160 }}>{t('budget.table.persons')}</th>
                         <th className="hidden sm:table-cell" style={{ ...th, minWidth: 55 }}>{t('budget.table.days')}</th>
                         <th className="hidden md:table-cell" style={{ ...th, minWidth: 100 }}>{t('budget.table.perPerson')}</th>

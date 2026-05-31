@@ -23,6 +23,10 @@ interface CustomSelectProps {
   disabled?: boolean
   /** Trigger shows only the chevron (options still show full labels). */
   hideLabel?: boolean
+  /** Minimum width of the dropdown menu (defaults to trigger width). */
+  menuMinWidth?: number
+  /** Embedded in a composite control — no outer trigger border. */
+  borderless?: boolean
 }
 
 export default function CustomSelect({
@@ -35,6 +39,8 @@ export default function CustomSelect({
   size = 'md',
   disabled = false,
   hideLabel = false,
+  menuMinWidth,
+  borderless = false,
 }: CustomSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -92,17 +98,23 @@ export default function CustomSelect({
         disabled={disabled}
         onClick={() => { if (!disabled) { setOpen(o => !o); setSearch('') } }}
         style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: hideLabel ? 'center' : undefined, gap: hideLabel ? 0 : 8,
-          padding: hideLabel ? (sm ? '6px 4px' : '8px 6px') : (sm ? '8px 12px' : '8px 14px'), borderRadius: 10,
-          border: '1px solid var(--border-primary)',
-          background: 'var(--bg-input)', color: 'var(--text-primary)',
-          fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: hideLabel ? 'center' : undefined, gap: hideLabel ? 0 : 6,
+          padding: borderless
+            ? (sm ? '0 8px' : '0 10px')
+            : hideLabel ? (sm ? '6px 4px' : '8px 6px') : (sm ? '8px 12px' : '8px 14px'),
+          borderRadius: borderless ? 0 : 10,
+          border: borderless ? 'none' : '1px solid var(--border-primary)',
+          background: borderless ? 'transparent' : 'var(--bg-input)', color: 'var(--text-primary)',
+          fontSize: sm ? 14 : 13, fontWeight: borderless ? 700 : 500, fontFamily: 'inherit',
           cursor: disabled ? 'default' : 'pointer', outline: 'none', textAlign: 'left',
-          transition: 'border-color 0.15s', overflow: 'hidden', minWidth: 0,
+          transition: 'border-color 0.15s, background 0.15s', overflow: 'hidden', minWidth: 0,
           opacity: disabled ? 0.5 : 1,
+          height: borderless ? '100%' : undefined,
+          minHeight: borderless ? 34 : undefined,
+          boxSizing: 'border-box',
         }}
-        onMouseEnter={e => { if (!disabled) e.currentTarget.style.borderColor = 'var(--text-faint)' }}
-        onMouseLeave={e => { if (!open) e.currentTarget.style.borderColor = 'var(--border-primary)' }}
+        onMouseEnter={e => { if (!disabled && !borderless) e.currentTarget.style.borderColor = 'var(--text-faint)' }}
+        onMouseLeave={e => { if (!open && !borderless) e.currentTarget.style.borderColor = 'var(--border-primary)' }}
       >
         {selected?.icon && <span style={{ display: 'flex', flexShrink: 0 }}>{selected.icon}</span>}
         {!hideLabel && (
@@ -126,12 +138,13 @@ export default function CustomSelect({
           position: 'fixed',
           ...(() => {
             const r = ref.current?.getBoundingClientRect()
-            if (!r) return { top: 0, left: 0, width: 200 }
+            if (!r) return { top: 0, left: 0, width: menuMinWidth ?? 200 }
+            const dropWidth = Math.max(r.width, menuMinWidth ?? 0)
             const spaceBelow = window.innerHeight - r.bottom
             const openUp = spaceBelow < 220 && r.top > spaceBelow
             return openUp
-              ? { bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width }
-              : { top: r.bottom + 4, left: r.left, width: r.width }
+              ? { bottom: window.innerHeight - r.top + 4, left: r.left, width: dropWidth }
+              : { top: r.bottom + 4, left: r.left, width: dropWidth }
           })(),
           zIndex: 99999,
           background: 'var(--bg-card)',
