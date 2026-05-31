@@ -6,6 +6,7 @@ import { useCanDo } from '../../store/permissionsStore'
 import { useTranslation } from '../../i18n'
 import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon } from 'lucide-react'
 import BudgetTryConversion from './BudgetTryConversion'
+import { useTryExchangeRates, convertAmountToTry } from '../../hooks/useTryExchangeRates'
 
 function useIsDark(): boolean {
   const [dark, setDark] = useState<boolean>(() => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
@@ -803,6 +804,8 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     () => sumByItemCurrency(budgetItems || [], getItemCurrency),
     [budgetItems, getItemCurrency],
   )
+  const needsTryConversion = (totalsByCurrency.get('EUR') || 0) > 0 || (totalsByCurrency.get('USD') || 0) > 0
+  const { rates: tryRates, meta: tryRatesMeta, loading: tryRatesLoading, error: tryRatesError, refresh: refreshTryRates } = useTryExchangeRates(needsTryConversion)
   const primaryCurrency = totalsByCurrency.size === 1
     ? Array.from(totalsByCurrency.keys())[0]
     : defaultCurrency
@@ -814,15 +817,27 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   )
 
   const pieSegments = useMemo(() => {
+    if (needsTryConversion && !tryRates && !tryRatesError) return []
     const map = new Map<string, { name: string; value: number; color: string; currency: string }>()
+    const useTry = needsTryConversion && tryRates != null
     for (const item of budgetItems || []) {
       const cat = item.category || 'Other'
+      const cur = getItemCurrency(item)
+      const raw = item.total_price || 0
+      const value = useTry ? convertAmountToTry(raw, cur, tryRates) : raw
+      const displayCur = useTry ? 'TRY' : cur
       const existing = map.get(cat)
-      if (existing) existing.value += item.total_price || 0
-      else map.set(cat, { name: cat, value: item.total_price || 0, color: categoryColor(cat), currency: getItemCurrency(item) })
+      if (existing) existing.value += value
+      else map.set(cat, { name: cat, value, color: categoryColor(cat), currency: displayCur })
     }
     return Array.from(map.values()).filter(s => s.value > 0)
-  }, [budgetItems, getItemCurrency, categoryColor])
+  }, [budgetItems, getItemCurrency, categoryColor, needsTryConversion, tryRates, tryRatesError])
+
+  const hasPieData = useMemo(
+    () => (budgetItems || []).some(i => (i.total_price || 0) > 0),
+    [budgetItems],
+  )
+  const showPieChart = pieSegments.length > 0 || (needsTryConversion && hasPieData && (tryRatesLoading || tryRatesError))
 
   const handleAddItem = async (category, data) => { try { await addBudgetItem(tripId, { ...data, category }) } catch {} }
   const handleUpdateField = async (id, field, value) => { try { await updateBudgetItem(tripId, id, { [field]: value }) } catch {} }
@@ -1304,6 +1319,11 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               locale={locale}
               theme={theme}
               t={t}
+              rates={tryRates}
+              meta={tryRatesMeta}
+              loading={tryRatesLoading}
+              error={tryRatesError}
+              onRefresh={refreshTryRates}
             />
 
             {hasMultipleMembers && perPersonForPanel.length > 0 && (
@@ -1409,10 +1429,14 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
             )}
           </div>
 
-          {pieSegments.length > 0 && (() => {
-            const decimals = currencyDecimals(primaryCurrency)
+          {showPieChart && (() => {
+            const pieUsesTry = needsTryConversion && tryRates != null
+            const pieWaitingRates = needsTryConversion && tryRates == null && tryRatesLoading
+            const pieRatesFailed = needsTryConversion && tryRates == null && tryRatesError
+            const displayCurrency = pieUsesTry ? 'TRY' : primaryCurrency
+            const decimals = currencyDecimals(displayCurrency)
             const total = pieSegments.reduce((s, x) => s + x.value, 0)
-            const mixedCurrencies = totalsByCurrency.size > 1
+            const mixedCurrencies = !pieUsesTry && totalsByCurrency.size > 1
             const totalFmt = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
             const decimalSep = (0.1).toLocaleString(locale).replace(/\d/g, '')
             const [totalInt, totalDec] = decimals > 0 ? totalFmt.split(decimalSep) : [totalFmt, '']
@@ -1473,15 +1497,26 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                   <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, pointerEvents: 'none' }}>
                     <div style={{ fontSize: 10.5, color: theme.faint, textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700 }}>{t('budget.total')}</div>
                     <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: 2 }}>
-                      {!mixedCurrencies && <span>{totalInt}</span>}
-                      {!mixedCurrencies && totalDec && <span style={{ fontSize: 13, fontWeight: 500, color: theme.sub }}>{decimalSep}{totalDec}</span>}
-                      {mixedCurrencies && <span style={{ fontSize: 14, fontWeight: 600, color: theme.sub }}>{t('budget.mixedCurrencies')}</span>}
+                      {pieWaitingRates && <span style={{ fontSize: 14, fontWeight: 600, color: theme.sub }}>{t('budget.loadingRates')}</span>}
+                      {!pieWaitingRates && !mixedCurrencies && !pieRatesFailed && <span>{totalInt}</span>}
+                      {!pieWaitingRates && !mixedCurrencies && !pieRatesFailed && totalDec && <span style={{ fontSize: 13, fontWeight: 500, color: theme.sub }}>{decimalSep}{totalDec}</span>}
+                      {!pieWaitingRates && mixedCurrencies && <span style={{ fontSize: 14, fontWeight: 600, color: theme.sub }}>{t('budget.mixedCurrencies')}</span>}
+                      {!pieWaitingRates && pieRatesFailed && <span style={{ fontSize: 12, fontWeight: 600, color: theme.sub }}>{t('budget.ratesUnavailable')}</span>}
                     </div>
-                    {!mixedCurrencies && (
-                      <div style={{ fontSize: 10.5, color: theme.faint, fontWeight: 500, marginTop: 2 }}>{primaryCurrency}</div>
+                    {!mixedCurrencies && !pieWaitingRates && !pieRatesFailed && (
+                      <div style={{ fontSize: 10.5, color: theme.faint, fontWeight: 500, marginTop: 2 }}>{pieUsesTry ? '₺' : displayCurrency}</div>
                     )}
                   </div>
                 </div>
+
+                {pieUsesTry && tryRatesMeta && (
+                  <p style={{ fontSize: 10, color: theme.faint, textAlign: 'center', margin: '0 0 8px', lineHeight: 1.4 }}>
+                    {t('budget.pieTryFootnote', {
+                      source: tryRatesMeta.source === 'tcmb' ? 'TCMB' : 'ExchangeRate-API',
+                      date: tryRatesMeta.date,
+                    })}
+                  </p>
+                )}
 
                 <div style={{ borderTop: `1px solid ${theme.divider}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {pieSegments.map((seg, i) => {

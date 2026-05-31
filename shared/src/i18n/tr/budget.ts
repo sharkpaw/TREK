@@ -49,5 +49,7 @@ const budget: TranslationStrings = {
   'budget.refreshRates': 'Kurları yenile',
   'budget.ratesUnavailable': 'Döviz kurları alınamadı',
   'budget.ratesFootnote': 'Kaynak: {source} · Kur tarihi: {date}',
+  'budget.loadingRates': 'Kurlar yükleniyor…',
+  'budget.pieTryFootnote': 'TL karşılığı · {source} · {date}',
 };
 export default budget;

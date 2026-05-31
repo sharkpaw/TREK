@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { exchangeRatesApi } from '../../api/client'
+import type { TryRates } from '../../hooks/useTryExchangeRates'
+import { convertAmountToTry } from '../../hooks/useTryExchangeRates'
 import { currencyDecimals } from '../../utils/formatters'
 
 const SYMBOLS: Record<string, string> = { TRY: '₺', EUR: '€', USD: '$' }
@@ -21,6 +22,11 @@ interface BudgetTryConversionProps {
     shadow: string
   }
   t: (key: string, params?: Record<string, string | number>) => string
+  rates: TryRates | null
+  meta: { source: string; date: string } | null
+  loading: boolean
+  error: boolean
+  onRefresh: () => void
 }
 
 function fmtAmount(v: number, locale: string, cur: string) {
@@ -33,38 +39,18 @@ function fmtPlain(v: number, locale: string, cur: string) {
   return Number(v).toLocaleString(locale, { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
-export default function BudgetTryConversion({ totalsByCurrency, locale, theme, t }: BudgetTryConversionProps) {
-  const [rates, setRates] = useState<{ EUR: number; USD: number } | null>(null)
-  const [meta, setMeta] = useState<{ source: string; date: string; fetchedAt: string } | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(false)
-
+export default function BudgetTryConversion({
+  totalsByCurrency, locale, theme, t, rates, meta, loading, error, onRefresh,
+}: BudgetTryConversionProps) {
   const tryAmount = totalsByCurrency.get('TRY') || 0
   const eurAmount = totalsByCurrency.get('EUR') || 0
   const usdAmount = totalsByCurrency.get('USD') || 0
   const hasForeign = eurAmount > 0 || usdAmount > 0
 
-  const loadRates = useCallback(async (refresh = false) => {
-    setLoading(true)
-    setError(false)
-    try {
-      const data = await exchangeRatesApi.tryRates(refresh)
-      setRates(data.rates)
-      setMeta({ source: data.source, date: data.date, fetchedAt: data.fetchedAt })
-    } catch {
-      setRates(null)
-      setError(true)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { if (hasForeign) loadRates() }, [hasForeign, loadRates])
-
   const rows = useMemo(() => {
     if (!rates) return null
-    const eurTry = eurAmount * rates.EUR
-    const usdTry = usdAmount * rates.USD
+    const eurTry = convertAmountToTry(eurAmount, 'EUR', rates)
+    const usdTry = convertAmountToTry(usdAmount, 'USD', rates)
     const grandTotal = tryAmount + eurTry + usdTry
     return {
       eurTry,
@@ -104,7 +90,7 @@ export default function BudgetTryConversion({ totalsByCurrency, locale, theme, t
         </div>
         <button
           type="button"
-          onClick={() => loadRates(true)}
+          onClick={onRefresh}
           disabled={loading}
           title={t('budget.refreshRates')}
           style={{

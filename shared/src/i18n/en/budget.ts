@@ -52,5 +52,7 @@ const budget: TranslationStrings = {
   'budget.refreshRates': 'Refresh rates',
   'budget.ratesUnavailable': 'Exchange rates unavailable',
   'budget.ratesFootnote': 'Source: {source} · Rate date: {date}',
+  'budget.loadingRates': 'Loading rates…',
+  'budget.pieTryFootnote': 'TL equivalent · {source} · {date}',
 };
 export default budget;
