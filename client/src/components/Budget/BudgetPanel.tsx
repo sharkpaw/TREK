@@ -93,13 +93,6 @@ interface PerPersonSummaryEntry {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const CURRENCIES = [
-  'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'CZK', 'PLN', 'SEK', 'NOK', 'DKK',
-  'TRY', 'THB', 'AUD', 'CAD', 'NZD', 'BRL', 'MXN', 'INR', 'IDR', 'MYR',
-  'PHP', 'SGD', 'KRW', 'CNY', 'HKD', 'TWD', 'ZAR', 'AED', 'SAR', 'ILS',
-  'EGP', 'MAD', 'HUF', 'RON', 'BGN', 'HRK', 'ISK', 'RUB', 'UAH', 'BDT',
-  'LKR', 'VND', 'CLP', 'COP', 'PEN', 'ARS',
-]
 const SYMBOLS = {
   EUR: '€', USD: '$', GBP: '£', JPY: '¥', CHF: 'CHF', CZK: 'Kč', PLN: 'zł',
   SEK: 'kr', NOK: 'kr', DKK: 'kr', TRY: '₺', THB: '฿', AUD: 'A$', CAD: 'C$',
@@ -110,6 +103,8 @@ const SYMBOLS = {
   UAH: '₴', BDT: '৳', LKR: 'Rs', VND: '₫', CLP: 'CL$', COP: 'CO$',
   PEN: 'S/.', ARS: 'AR$',
 }
+const CATEGORY_CURRENCIES = ['EUR', 'USD', 'TRY'] as const
+const CATEGORY_CURRENCY_OPTIONS = CATEGORY_CURRENCIES.map(c => ({ value: c, label: `${c} (${SYMBOLS[c] || c})` }))
 const PIE_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#06b6d4', '#84cc16', '#a855f7']
 
 const fmtNum = (v, locale, cur) => {
@@ -559,7 +554,7 @@ interface BudgetPanelProps {
 }
 
 export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelProps) {
-  const { trip, budgetItems, addBudgetItem, updateBudgetItem, deleteBudgetItem, loadBudgetItems, updateTrip, setBudgetItemMembers, toggleBudgetMemberPaid, reorderBudgetItems, reorderBudgetCategories } = useTripStore()
+  const { trip, budgetItems, budgetCategories, addBudgetItem, updateBudgetItem, deleteBudgetItem, loadBudgetItems, setBudgetItemMembers, toggleBudgetMemberPaid, reorderBudgetItems, reorderBudgetCategories, updateBudgetCategoryCurrency, renameBudgetCategory } = useTripStore()
   const can = useCanDo()
   const { t, locale } = useTranslation()
   const isDark = useIsDark()
@@ -568,8 +563,18 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const [editingCat, setEditingCat] = useState(null) // { name, value }
   const [settlement, setSettlement] = useState<{ balances: any[]; flows: any[] } | null>(null)
   const [settlementOpen, setSettlementOpen] = useState(false)
-  const currency = trip?.currency || 'EUR'
   const canEdit = can('budget_edit', trip)
+
+  const defaultCurrency = useMemo(() => {
+    const tripCur = (trip?.currency || 'EUR').toUpperCase()
+    return (CATEGORY_CURRENCIES as readonly string[]).includes(tripCur) ? tripCur : 'EUR'
+  }, [trip?.currency])
+
+  const getCatCurrency = useCallback((cat: string) => {
+    const stored = budgetCategories[cat]
+    if (stored && (CATEGORY_CURRENCIES as readonly string[]).includes(stored)) return stored
+    return defaultCurrency
+  }, [budgetCategories, defaultCurrency])
 
   const fmt = (v, cur) => fmtNum(v, locale, cur)
   const hasMultipleMembers = tripMembers.length > 1
@@ -587,10 +592,6 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     if (!hasMultipleMembers) return
     budgetApi.settlement(tripId).then(setSettlement).catch(() => {})
   }, [tripId, budgetItems, hasMultipleMembers])
-
-  const setCurrency = (cur) => {
-    if (tripId) updateTrip(tripId, { currency: cur })
-  }
 
   useEffect(() => { if (tripId) loadBudgetItems(tripId) }, [tripId])
 
@@ -616,14 +617,27 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     return map.get(cat)!
   }, [])
   const grandTotal = (budgetItems || []).reduce((s, i) => s + (i.total_price || 0), 0)
+  const totalsByCurrency = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const cat of categoryNames) {
+      const cur = getCatCurrency(cat)
+      const sub = (grouped.get(cat) || []).reduce((s, x) => s + (x.total_price || 0), 0)
+      map.set(cur, (map.get(cur) || 0) + sub)
+    }
+    return map
+  }, [categoryNames, grouped, getCatCurrency])
+  const primaryCurrency = totalsByCurrency.size === 1
+    ? Array.from(totalsByCurrency.keys())[0]
+    : defaultCurrency
 
   const pieSegments = useMemo(() =>
-    categoryNames.map((cat, i) => ({
+    categoryNames.map((cat) => ({
       name: cat,
       value: (grouped.get(cat) || []).reduce((s, x) => s + (x.total_price || 0), 0),
       color: categoryColor(cat),
+      currency: getCatCurrency(cat),
     })).filter(s => s.value > 0)
-  , [grouped, categoryNames])
+  , [grouped, categoryNames, getCatCurrency, categoryColor])
 
   const handleAddItem = async (category, data) => { try { await addBudgetItem(tripId, { ...data, category }) } catch {} }
   const handleUpdateField = async (id, field, value) => { try { await updateBudgetItem(tripId, id, { [field]: value }) } catch {} }
@@ -631,10 +645,17 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const handleDeleteCategory = async (cat) => {
     const items = grouped.get(cat) || []
     for (const item of Array.from(items)) await deleteBudgetItem(tripId, item.id)
+    try { await budgetApi.deleteCategoryMeta(tripId, cat) } catch {}
+    useTripStore.setState(state => {
+      const next = { ...state.budgetCategories }
+      delete next[cat]
+      return { budgetCategories: next }
+    })
   }
   const handleRenameCategory = async (oldName, newName) => {
     if (!newName.trim() || newName.trim() === oldName) return
     const items = grouped.get(oldName) || []
+    await renameBudgetCategory(tripId, oldName, newName.trim())
     for (const item of Array.from(items)) await updateBudgetItem(tripId, item.id, { category: newName.trim() })
   }
   const handleAddCategory = () => {
@@ -646,20 +667,20 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const handleExportCsv = () => {
     const sep = ';'
     const esc = (v: any) => { const s = String(v ?? ''); return s.includes(sep) || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s }
-    const d = currencyDecimals(currency)
-    const fmtPrice = (v: number | null | undefined) => v != null ? v.toFixed(d) : ''
-
-    const fmtDate = (iso: string) => { if (!iso) return ''; const d = new Date(iso + 'T00:00:00Z'); return d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }) }
-    const header = ['Category', 'Name', 'Date', 'Total (' + currency + ')', 'Persons', 'Days', 'Per Person', 'Per Day', 'Per Person/Day', 'Note']
+    const fmtDate = (iso: string) => { if (!iso) return ''; const dt = new Date(iso + 'T00:00:00Z'); return dt.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }) }
+    const header = ['Category', 'Currency', 'Name', 'Date', 'Total', 'Persons', 'Days', 'Per Person', 'Per Day', 'Per Person/Day', 'Note']
     const rows = [header.join(sep)]
 
     for (const cat of categoryNames) {
+      const catCurrency = getCatCurrency(cat)
+      const d = currencyDecimals(catCurrency)
+      const fmtPrice = (v: number | null | undefined) => v != null ? v.toFixed(d) : ''
       for (const item of (grouped.get(cat) || [])) {
         const pp = calcPP(item.total_price, item.persons)
         const pd = calcPD(item.total_price, item.days)
         const ppd = calcPPD(item.total_price, item.persons, item.days)
         rows.push([
-          esc(item.category), esc(item.name), esc(fmtDate(item.expense_date || '')),
+          esc(item.category), esc(catCurrency), esc(item.name), esc(fmtDate(item.expense_date || '')),
           fmtPrice(item.total_price), item.persons ?? '', item.days ?? '',
           fmtPrice(pp), fmtPrice(pd), fmtPrice(ppd),
           esc(item.note || ''),
@@ -720,15 +741,6 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
             {t('budget.title')}
           </h2>
           <div className="flex flex-wrap max-md:!w-full max-md:!mt-2" style={{ alignItems: 'center', gap: 8, marginLeft: 'auto', flexShrink: 0 }}>
-            <div className="max-md:!w-full" style={{ width: 150 }}>
-              <CustomSelect
-                value={currency}
-                onChange={setCurrency}
-                disabled={!canEdit}
-                options={CURRENCIES.map(c => ({ value: c, label: `${c} (${SYMBOLS[c] || c})` }))}
-                searchable
-              />
-            </div>
             {canEdit && (
               <div className="max-md:!w-full" style={{ display: 'flex', gap: 6, width: 260 }}>
                 <input
@@ -773,6 +785,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
         <div style={{ flex: 1, minWidth: 0 }}>
           {categoryNames.map((cat, ci) => {
             const items = grouped.get(cat) || []
+            const catCurrency = getCatCurrency(cat)
             const subtotal = items.reduce((s, x) => s + (x.total_price || 0), 0)
             const color = categoryColor(cat)
 
@@ -840,7 +853,16 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>{fmt(subtotal, currency)}</span>
+                    <div style={{ width: 110 }} onClick={e => e.stopPropagation()}>
+                      <CustomSelect
+                        value={catCurrency}
+                        onChange={cur => updateBudgetCategoryCurrency(tripId, cat, cur)}
+                        disabled={!canEdit}
+                        options={CATEGORY_CURRENCY_OPTIONS}
+                        size="sm"
+                      />
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>{fmt(subtotal, catCurrency)}</span>
                     {canEdit && (
                       <button onClick={() => handleDeleteCategory(cat)} title={t('budget.deleteCategory')}
                         style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '3px 6px', display: 'flex', alignItems: 'center', opacity: 0.6 }}
@@ -927,7 +949,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                               </div>
                             </td>
                             <td style={{ ...td, textAlign: 'center' }}>
-                              <InlineEditCell value={item.total_price} type="number" decimals={currencyDecimals(currency)} onSave={v => handleUpdateField(item.id, 'total_price', v)} style={{ textAlign: 'center' }} placeholder={currencyDecimals(currency) === 0 ? '0' : '0,00'} locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
+                              <InlineEditCell value={item.total_price} type="number" decimals={currencyDecimals(catCurrency)} onSave={v => handleUpdateField(item.id, 'total_price', v)} style={{ textAlign: 'center' }} placeholder={currencyDecimals(catCurrency) === 0 ? '0' : '0,00'} locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
                             </td>
                             <td className="hidden sm:table-cell" style={{ ...td, textAlign: 'center', position: 'relative' }}>
                               {hasMultipleMembers ? (
@@ -945,9 +967,9 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                             <td className="hidden sm:table-cell" style={{ ...td, textAlign: 'center' }}>
                               <InlineEditCell value={item.days} type="number" decimals={0} onSave={v => handleUpdateField(item.id, 'days', v != null ? parseInt(v) || null : null)} style={{ textAlign: 'center' }} placeholder="-" locale={locale} editTooltip={t('budget.editTooltip')} readOnly={!canEdit} />
                             </td>
-                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pp != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pp != null ? fmt(pp, currency) : '-'}</td>
-                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pd != null ? fmt(pd, currency) : '-'}</td>
-                            <td className="hidden lg:table-cell" style={{ ...td, textAlign: 'center', color: ppd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{ppd != null ? fmt(ppd, currency) : '-'}</td>
+                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pp != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pp != null ? fmt(pp, catCurrency) : '-'}</td>
+                            <td className="hidden md:table-cell" style={{ ...td, textAlign: 'center', color: pd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{pd != null ? fmt(pd, catCurrency) : '-'}</td>
+                            <td className="hidden lg:table-cell" style={{ ...td, textAlign: 'center', color: ppd != null ? 'var(--text-secondary)' : 'var(--text-faint)' }}>{ppd != null ? fmt(ppd, catCurrency) : '-'}</td>
                             <td className="hidden sm:table-cell" style={{ ...td, padding: '2px 6px', width: 90, maxWidth: 90, textAlign: 'center' }}>
                               {canEdit ? (
                                 <div style={{ maxWidth: 90, margin: '0 auto' }}>
@@ -1002,25 +1024,27 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               </div>
             </div>
 
-            {(() => {
-              const decimals = currencyDecimals(currency)
-              const full = Number(grandTotal).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+            {Array.from(totalsByCurrency.entries()).map(([cur, total], idx) => {
+              const decimals = currencyDecimals(cur)
+              const full = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
               const sep = (0.1).toLocaleString(locale).replace(/\d/g, '')
               const [integerPart, decimalPart] = decimals > 0 ? full.split(sep) : [full, '']
               return (
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, letterSpacing: '-0.03em', lineHeight: 1 }}>
-                  <span style={{ fontSize: 38, fontWeight: 700 }}>{integerPart}</span>
-                  {decimalPart && <span style={{ fontSize: 22, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
-                  <span style={{ fontSize: 22, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[currency] || currency}</span>
+                <div key={cur} style={{ marginTop: idx > 0 ? 14 : 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, letterSpacing: '-0.03em', lineHeight: 1 }}>
+                    <span style={{ fontSize: idx === 0 ? 38 : 28, fontWeight: 700 }}>{integerPart}</span>
+                    {decimalPart && <span style={{ fontSize: idx === 0 ? 22 : 18, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
+                    <span style={{ fontSize: idx === 0 ? 22 : 18, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[cur] || cur}</span>
+                  </div>
+                  <div style={{ color: theme.faint, fontSize: 12, marginTop: 8, fontWeight: 500, letterSpacing: '0.04em' }}>
+                    <span>{cur}</span>
+                  </div>
                 </div>
               )
-            })()}
-            <div style={{ color: theme.faint, fontSize: 12, marginTop: 8, fontWeight: 500, letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>{currency}</span>
-            </div>
+            })}
 
             {hasMultipleMembers && (budgetItems || []).some(i => i.members?.length > 0) && (
-              <PerPersonInline tripId={tripId} budgetItems={budgetItems} currency={currency} locale={locale} grandTotal={grandTotal} theme={theme} />
+              <PerPersonInline tripId={tripId} budgetItems={budgetItems} currency={primaryCurrency} locale={locale} grandTotal={totalsByCurrency.get(primaryCurrency) || grandTotal} theme={theme} />
             )}
 
             {/* Settlement dropdown inside the total card */}
@@ -1069,7 +1093,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                         <RingAvatar userId={flow.from.user_id} username={flow.from.username} avatarUrl={flow.from.avatar_url} size={32} innerBg={theme.centerBg} textColor={theme.text} />
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', letterSpacing: '-0.01em' }}>
-                            {fmt(flow.amount, currency)}
+                            {fmt(flow.amount, primaryCurrency)}
                           </span>
                           <div style={{ width: '100%', height: 2, borderRadius: 2, background: 'linear-gradient(90deg, rgba(239,68,68,0.1), rgba(239,68,68,0.55), rgba(239,68,68,0.3))', position: 'relative' }}>
                             <div style={{ position: 'absolute', right: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderLeft: '6px solid rgba(239,68,68,0.55)', borderTop: '4px solid transparent', borderBottom: '4px solid transparent' }} />
@@ -1102,7 +1126,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                                   color: positive ? '#10b981' : '#ef4444',
                                 }}>
                                   <Trend size={11} strokeWidth={3} />
-                                  {positive ? '+' : ''}{fmt(b.balance, currency)}
+                                  {positive ? '+' : ''}{fmt(b.balance, primaryCurrency)}
                                 </span>
                               </div>
                             )
@@ -1117,8 +1141,9 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
           </div>
 
           {pieSegments.length > 0 && (() => {
-            const decimals = currencyDecimals(currency)
+            const decimals = currencyDecimals(primaryCurrency)
             const total = pieSegments.reduce((s, x) => s + x.value, 0)
+            const mixedCurrencies = totalsByCurrency.size > 1
             const totalFmt = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
             const decimalSep = (0.1).toLocaleString(locale).replace(/\d/g, '')
             const [totalInt, totalDec] = decimals > 0 ? totalFmt.split(decimalSep) : [totalFmt, '']
@@ -1179,10 +1204,13 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                   <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, pointerEvents: 'none' }}>
                     <div style={{ fontSize: 10.5, color: theme.faint, textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700 }}>{t('budget.total')}</div>
                     <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: 2 }}>
-                      <span>{totalInt}</span>
-                      {totalDec && <span style={{ fontSize: 13, fontWeight: 500, color: theme.sub }}>{decimalSep}{totalDec}</span>}
+                      {!mixedCurrencies && <span>{totalInt}</span>}
+                      {!mixedCurrencies && totalDec && <span style={{ fontSize: 13, fontWeight: 500, color: theme.sub }}>{decimalSep}{totalDec}</span>}
+                      {mixedCurrencies && <span style={{ fontSize: 14, fontWeight: 600, color: theme.sub }}>{t('budget.mixedCurrencies')}</span>}
                     </div>
-                    <div style={{ fontSize: 10.5, color: theme.faint, fontWeight: 500, marginTop: 2 }}>{currency}</div>
+                    {!mixedCurrencies && (
+                      <div style={{ fontSize: 10.5, color: theme.faint, fontWeight: 500, marginTop: 2 }}>{primaryCurrency}</div>
+                    )}
                   </div>
                 </div>
 
@@ -1208,7 +1236,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                         }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13.5, fontWeight: 500, letterSpacing: '-0.01em', color: theme.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seg.name}</div>
-                          <div style={{ fontSize: 11.5, color: theme.sub, fontWeight: 500, marginTop: 1 }}>{fmt(seg.value, currency)}</div>
+                          <div style={{ fontSize: 11.5, color: theme.sub, fontWeight: 500, marginTop: 1 }}>{fmt(seg.value, seg.currency)}</div>
                         </div>
                         <span style={{
                           flexShrink: 0,

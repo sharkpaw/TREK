@@ -70,7 +70,9 @@ export default function SharedTripPage() {
     </div>
   )
 
-  const { trip, days, assignments, dayNotes, places, reservations, accommodations, packing, budget, categories, permissions, collab } = data
+  const { trip, days, assignments, dayNotes, places, reservations, accommodations, packing, budget, budgetCategories, categories, permissions, collab } = data
+  const categoryCurrencyMap = Object.fromEntries((budgetCategories || []).map((c: { category: string; currency: string }) => [c.category, c.currency]))
+  const getSharedCatCurrency = (cat: string) => categoryCurrencyMap[cat] || trip.currency || 'EUR'
   const sortedDays = [...(days || [])].sort((a: any, b: any) => a.day_number - b.day_number)
 
   // Map places
@@ -323,20 +325,26 @@ export default function SharedTripPage() {
         {/* Budget */}
         {activeTab === 'budget' && (budget || []).length > 0 && (() => {
           const grouped = (budget || []).reduce((g: any, i: any) => { const c = i.category || t('shared.other'); (g[c] = g[c] || []).push(i); return g }, {})
-          const total = (budget || []).reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0)
+          const totalsByCurrency = Object.entries(grouped).reduce((acc: Record<string, number>, [cat, items]: [string, any]) => {
+            const cur = getSharedCatCurrency(cat)
+            const sub = items.reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0)
+            acc[cur] = (acc[cur] || 0) + sub
+            return acc
+          }, {})
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* Total card */}
-              <div style={{ background: 'linear-gradient(135deg, #000 0%, #1a1a2e 100%)', borderRadius: 14, padding: '20px 24px', color: 'white' }}>
-                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.5 }}>{t('shared.totalBudget')}</div>
-                <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{total.toLocaleString(locale, { minimumFractionDigits: 2 })} {trip.currency || 'EUR'}</div>
-              </div>
+              {Object.entries(totalsByCurrency).map(([cur, total]) => (
+                <div key={cur} style={{ background: 'linear-gradient(135deg, #000 0%, #1a1a2e 100%)', borderRadius: 14, padding: '20px 24px', color: 'white' }}>
+                  <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.5 }}>{t('shared.totalBudget')} ({cur})</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{Number(total).toLocaleString(locale, { minimumFractionDigits: 2 })} {cur}</div>
+                </div>
+              ))}
               {/* By category */}
               {Object.entries(grouped).map(([cat, items]: [string, any]) => (
                 <div key={cat} style={{ background: 'var(--bg-card, white)', borderRadius: 12, border: '1px solid var(--border-faint, #e5e7eb)', overflow: 'hidden' }}>
                   <div style={{ padding: '10px 16px', background: '#f9fafb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f3f4f6' }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{cat}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>{items.reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0).toLocaleString(locale, { minimumFractionDigits: 2 })} {trip.currency || ''}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>{items.reduce((s: number, i: any) => s + (parseFloat(i.total_price) || 0), 0).toLocaleString(locale, { minimumFractionDigits: 2 })} {getSharedCatCurrency(cat)}</span>
                   </div>
                   {items.map((item: any) => (
                     <div key={item.id} style={{ padding: '8px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #fafafa' }}>

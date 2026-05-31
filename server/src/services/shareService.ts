@@ -1,6 +1,7 @@
 import { db, canAccessTrip } from '../db/database';
 import crypto from 'crypto';
 import { loadTagsByPlaceIds } from './queryHelpers';
+import { listBudgetCategories } from './budgetService';
 
 interface SharePermissions {
   share_map?: boolean;
@@ -184,6 +185,7 @@ export function getSharedTripData(token: string): Record<string, any> | null {
 
   // Budget
   const budget = db.prepare('SELECT * FROM budget_items WHERE trip_id = ? ORDER BY category ASC').all(tripId);
+  const budgetCategories = listBudgetCategories(tripId);
 
   // Categories
   const categories = db.prepare('SELECT * FROM categories').all();
@@ -207,6 +209,7 @@ export function getSharedTripData(token: string): Record<string, any> | null {
     accommodations: permissions.share_bookings ? accommodations : [],
     packing: permissions.share_packing ? packing : [],
     budget: permissions.share_budget ? budget : [],
+    budgetCategories: permissions.share_budget ? budgetCategories : [],
     collab: collabMessages,
   };
 }

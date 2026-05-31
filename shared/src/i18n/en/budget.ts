@@ -39,5 +39,7 @@ const budget: TranslationStrings = {
     'Click a member avatar on a budget item to mark them green — this means they paid. The settlement then shows who owes whom and how much.',
   'budget.netBalances': 'Net Balances',
   'budget.categoriesLabel': 'categories',
+  'budget.categoryCurrency': 'Currency',
+  'budget.mixedCurrencies': 'Mixed',
 };
 export default budget;

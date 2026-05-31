@@ -544,3 +544,38 @@ describe('Budget edit permission enforcement', () => {
     invalidatePermissionsCache();
   });
 });
+
+describe('Budget category currency', () => {
+  it('BUDGET-019 — PUT updates category currency and GET returns categories', async () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    createBudgetItem(testDb, trip.id, { name: 'Hotel', category: 'Konaklama', total_price: 200 });
+
+    const updateRes = await request(app)
+      .put(`/api/trips/${trip.id}/budget/categories/currency`)
+      .set('Cookie', authCookie(user.id))
+      .send({ category: 'Konaklama', currency: 'TRY' });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.category.currency).toBe('TRY');
+
+    const listRes = await request(app)
+      .get(`/api/trips/${trip.id}/budget`)
+      .set('Cookie', authCookie(user.id));
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.categories).toEqual(
+      expect.arrayContaining([expect.objectContaining({ category: 'Konaklama', currency: 'TRY' })])
+    );
+  });
+
+  it('BUDGET-020 — rejects unsupported category currency', async () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    createBudgetItem(testDb, trip.id, { name: 'Flight', category: 'Ulaşım' });
+
+    const res = await request(app)
+      .put(`/api/trips/${trip.id}/budget/categories/currency`)
+      .set('Cookie', authCookie(user.id))
+      .send({ category: 'Ulaşım', currency: 'GBP' });
+    expect(res.status).toBe(400);
+  });
+});

@@ -1,9 +1,43 @@
 import { db, canAccessTrip } from '../db/database';
 import { BudgetItem, BudgetItemMember } from '../types';
 
+export const BUDGET_CATEGORY_CURRENCIES = ['EUR', 'USD', 'TRY'] as const;
+export type BudgetCategoryCurrency = typeof BUDGET_CATEGORY_CURRENCIES[number];
+
+export interface BudgetCategoryMeta {
+  category: string;
+  sort_order: number;
+  currency: BudgetCategoryCurrency;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+export function normalizeBudgetCategoryCurrency(
+  currency: string | null | undefined,
+  fallback: BudgetCategoryCurrency = 'EUR',
+): BudgetCategoryCurrency {
+  const c = (currency || fallback).toUpperCase();
+  return (BUDGET_CATEGORY_CURRENCIES as readonly string[]).includes(c)
+    ? c as BudgetCategoryCurrency
+    : fallback;
+}
+
+function defaultCategoryCurrency(tripId: string | number): BudgetCategoryCurrency {
+  const trip = db.prepare('SELECT currency FROM trips WHERE id = ?').get(tripId) as { currency?: string | null } | undefined;
+  return normalizeBudgetCategoryCurrency(trip?.currency, 'EUR');
+}
+
+function ensureCategoryOrder(tripId: string | number, category: string) {
+  const catExists = db.prepare('SELECT 1 FROM budget_category_order WHERE trip_id = ? AND category = ?').get(tripId, category);
+  if (catExists) return;
+
+  const maxCatOrder = db.prepare('SELECT MAX(sort_order) as max FROM budget_category_order WHERE trip_id = ?').get(tripId) as { max: number | null };
+  const catOrder = (maxCatOrder?.max !== null && maxCatOrder?.max !== undefined ? maxCatOrder.max : -1) + 1;
+  const currency = defaultCategoryCurrency(tripId);
+  db.prepare('INSERT OR IGNORE INTO budget_category_order (trip_id, category, sort_order, currency) VALUES (?, ?, ?, ?)').run(tripId, category, catOrder, currency);
+}
 
 export function avatarUrl(user: { avatar?: string | null }): string | null {
   return user.avatar ? `/uploads/avatars/${user.avatar}` : null;
@@ -26,6 +60,20 @@ function loadItemMembers(itemId: number | string) {
 // ---------------------------------------------------------------------------
 // CRUD
 // ---------------------------------------------------------------------------
+
+export function listBudgetCategories(tripId: string | number): BudgetCategoryMeta[] {
+  const rows = db.prepare(`
+    SELECT category, sort_order, currency FROM budget_category_order
+    WHERE trip_id = ?
+    ORDER BY sort_order ASC
+  `).all(tripId) as { category: string; sort_order: number; currency: string | null }[];
+
+  return rows.map(r => ({
+    category: r.category,
+    sort_order: r.sort_order,
+    currency: normalizeBudgetCategoryCurrency(r.currency, defaultCategoryCurrency(tripId)),
+  }));
+}
 
 export function listBudgetItems(tripId: string | number) {
   const items = db.prepare(`
@@ -68,14 +116,7 @@ export function createBudgetItem(
   const sortOrder = (maxOrder.max !== null ? maxOrder.max : -1) + 1;
 
   const cat = data.category || 'Other';
-
-  // Ensure category has a sort_order entry
-  const catExists = db.prepare('SELECT 1 FROM budget_category_order WHERE trip_id = ? AND category = ?').get(tripId, cat);
-  if (!catExists) {
-    const maxCatOrder = db.prepare('SELECT MAX(sort_order) as max FROM budget_category_order WHERE trip_id = ?').get(tripId) as { max: number | null };
-    const catOrder = (maxCatOrder?.max !== null && maxCatOrder?.max !== undefined ? maxCatOrder.max : -1) + 1;
-    db.prepare('INSERT OR IGNORE INTO budget_category_order (trip_id, category, sort_order) VALUES (?, ?, ?)').run(tripId, cat, catOrder);
-  }
+  ensureCategoryOrder(tripId, cat);
 
   const result = db.prepare(
     'INSERT INTO budget_items (trip_id, category, name, total_price, persons, days, note, sort_order, expense_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -138,15 +179,7 @@ export function updateBudgetItem(
     id,
   );
 
-  // If category changed, update category order table
-  if (data.category) {
-    const catExists = db.prepare('SELECT 1 FROM budget_category_order WHERE trip_id = ? AND category = ?').get(tripId, data.category);
-    if (!catExists) {
-      const maxCatOrder = db.prepare('SELECT MAX(sort_order) as max FROM budget_category_order WHERE trip_id = ?').get(tripId) as { max: number | null };
-      const catOrder = (maxCatOrder?.max !== null && maxCatOrder?.max !== undefined ? maxCatOrder.max : -1) + 1;
-      db.prepare('INSERT OR IGNORE INTO budget_category_order (trip_id, category, sort_order) VALUES (?, ?, ?)').run(tripId, data.category, catOrder);
-    }
-  }
+  if (data.category) ensureCategoryOrder(tripId, data.category);
 
   const updated = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(id) as BudgetItem & { members?: BudgetItemMember[] };
   updated.members = loadItemMembers(id);
@@ -302,10 +335,47 @@ export function reorderBudgetItems(tripId: string | number, orderedIds: number[]
 }
 
 export function reorderBudgetCategories(tripId: string | number, orderedCategories: string[]) {
-  const upsert = db.prepare(
-    'INSERT INTO budget_category_order (trip_id, category, sort_order) VALUES (?, ?, ?) ON CONFLICT(trip_id, category) DO UPDATE SET sort_order = excluded.sort_order'
-  );
+  const upsert = db.prepare(`
+    INSERT INTO budget_category_order (trip_id, category, sort_order, currency)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(trip_id, category) DO UPDATE SET sort_order = excluded.sort_order
+  `);
+  const fallback = defaultCategoryCurrency(tripId);
   db.transaction(() => {
-    orderedCategories.forEach((cat, index) => upsert.run(tripId, cat, index));
+    orderedCategories.forEach((cat, index) => upsert.run(tripId, cat, index, fallback));
   })();
+}
+
+export function updateBudgetCategoryCurrency(
+  tripId: string | number,
+  category: string,
+  currency: string,
+): BudgetCategoryMeta | null {
+  const normalized = normalizeBudgetCategoryCurrency(currency);
+  ensureCategoryOrder(tripId, category);
+  db.prepare('UPDATE budget_category_order SET currency = ? WHERE trip_id = ? AND category = ?')
+    .run(normalized, tripId, category);
+  const row = db.prepare('SELECT category, sort_order, currency FROM budget_category_order WHERE trip_id = ? AND category = ?')
+    .get(tripId, category) as { category: string; sort_order: number; currency: string | null } | undefined;
+  if (!row) return null;
+  return {
+    category: row.category,
+    sort_order: row.sort_order,
+    currency: normalizeBudgetCategoryCurrency(row.currency, normalized),
+  };
+}
+
+export function renameBudgetCategory(tripId: string | number, oldName: string, newName: string): boolean {
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return false;
+  const existing = db.prepare('SELECT currency, sort_order FROM budget_category_order WHERE trip_id = ? AND category = ?')
+    .get(tripId, oldName) as { currency: string | null; sort_order: number } | undefined;
+  if (!existing) return false;
+  db.prepare('UPDATE budget_category_order SET category = ? WHERE trip_id = ? AND category = ?')
+    .run(trimmed, tripId, oldName);
+  return true;
+}
+
+export function deleteBudgetCategoryOrder(tripId: string | number, category: string): void {
+  db.prepare('DELETE FROM budget_category_order WHERE trip_id = ? AND category = ?').run(tripId, category);
 }

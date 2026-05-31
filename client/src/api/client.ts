@@ -477,6 +477,12 @@ export const budgetApi = {
   settlement: (tripId: number | string) => apiClient.get(`/trips/${tripId}/budget/settlement`).then(r => r.data),
   reorderItems: (tripId: number | string, orderedIds: number[]) => apiClient.put(`/trips/${tripId}/budget/reorder/items`, { orderedIds }).then(r => r.data),
   reorderCategories: (tripId: number | string, orderedCategories: string[]) => apiClient.put(`/trips/${tripId}/budget/reorder/categories`, { orderedCategories }).then(r => r.data),
+  updateCategoryCurrency: (tripId: number | string, category: string, currency: string) =>
+    apiClient.put(`/trips/${tripId}/budget/categories/currency`, { category, currency }).then(r => r.data),
+  renameCategory: (tripId: number | string, oldName: string, newName: string) =>
+    apiClient.put(`/trips/${tripId}/budget/categories/rename`, { oldName, newName }).then(r => r.data),
+  deleteCategoryMeta: (tripId: number | string, category: string) =>
+    apiClient.delete(`/trips/${tripId}/budget/categories/${encodeURIComponent(category)}`).then(r => r.data),
 }
 
 export const filesApi = {

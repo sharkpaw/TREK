@@ -50,6 +50,7 @@ export interface TripStoreState
   tags: Tag[]
   categories: Category[]
   budgetItems: BudgetItem[]
+  budgetCategories: Record<string, string>
   files: TripFile[]
   reservations: Reservation[]
   selectedDayId: number | null
@@ -76,6 +77,7 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
   tags: [],
   categories: [],
   budgetItems: [],
+  budgetCategories: {},
   files: [],
   reservations: [],
   selectedDayId: null,

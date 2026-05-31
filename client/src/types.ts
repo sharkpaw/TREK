@@ -143,6 +143,12 @@ export interface BudgetMember {
   paid: boolean
 }
 
+export interface BudgetCategoryMeta {
+  category: string
+  sort_order: number
+  currency: 'EUR' | 'USD' | 'TRY'
+}
+
 export interface ReservationEndpoint {
   id?: number
   reservation_id?: number

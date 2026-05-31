@@ -2284,6 +2284,23 @@ function runMigrations(db: Database.Database): void {
         update.run(name, icon, color, id);
       }
     },
+    // Budget category currency (EUR, USD, TRY per category group)
+    () => {
+      try { db.exec("ALTER TABLE budget_category_order ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR'"); } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      const rows = db.prepare(`
+        SELECT bco.trip_id, bco.category, t.currency AS trip_currency
+        FROM budget_category_order bco
+        JOIN trips t ON t.id = bco.trip_id
+      `).all() as { trip_id: number; category: string; trip_currency: string | null }[];
+      const allowed = new Set(['EUR', 'USD', 'TRY']);
+      const upd = db.prepare('UPDATE budget_category_order SET currency = ? WHERE trip_id = ? AND category = ?');
+      for (const r of rows) {
+        const cur = (r.trip_currency || 'EUR').toUpperCase();
+        upd.run(allowed.has(cur) ? cur : 'EUR', r.trip_id, r.category);
+      }
+    },
   ];
 
   if (currentVersion < migrations.length) {

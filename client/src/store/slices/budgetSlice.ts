@@ -2,13 +2,18 @@ import { budgetApi } from '../../api/client'
 import { budgetRepo } from '../../repo/budgetRepo'
 import type { StoreApi } from 'zustand'
 import type { TripStoreState } from '../tripStore'
-import type { BudgetItem, BudgetMember } from '../../types'
+import type { BudgetItem, BudgetMember, BudgetCategoryMeta } from '../../types'
 import { getApiErrorMessage } from '../../types'
 
 type SetState = StoreApi<TripStoreState>['setState']
 type GetState = StoreApi<TripStoreState>['getState']
 
+function categoriesToMap(categories: BudgetCategoryMeta[] = []): Record<string, string> {
+  return Object.fromEntries(categories.map(c => [c.category, c.currency]))
+}
+
 export interface BudgetSlice {
+  budgetCategories: Record<string, string>
   loadBudgetItems: (tripId: number | string) => Promise<void>
   addBudgetItem: (tripId: number | string, data: Partial<BudgetItem>) => Promise<BudgetItem>
   updateBudgetItem: (tripId: number | string, id: number, data: Partial<BudgetItem>) => Promise<BudgetItem>
@@ -17,13 +22,20 @@ export interface BudgetSlice {
   toggleBudgetMemberPaid: (tripId: number | string, itemId: number, userId: number, paid: boolean) => Promise<void>
   reorderBudgetItems: (tripId: number | string, orderedIds: number[]) => Promise<void>
   reorderBudgetCategories: (tripId: number | string, orderedCategories: string[]) => Promise<void>
+  updateBudgetCategoryCurrency: (tripId: number | string, category: string, currency: string) => Promise<void>
+  renameBudgetCategory: (tripId: number | string, oldName: string, newName: string) => Promise<void>
 }
 
 export const createBudgetSlice = (set: SetState, get: GetState): BudgetSlice => ({
+  budgetCategories: {},
+
   loadBudgetItems: async (tripId) => {
     try {
       const data = await budgetRepo.list(tripId)
-      set({ budgetItems: data.items })
+      set({
+        budgetItems: data.items,
+        budgetCategories: categoriesToMap(data.categories),
+      })
     } catch (err: unknown) {
       console.error('Failed to load budget items:', err)
     }
@@ -32,7 +44,12 @@ export const createBudgetSlice = (set: SetState, get: GetState): BudgetSlice => 
   addBudgetItem: async (tripId, data) => {
     try {
       const result = await budgetApi.create(tripId, data)
-      set(state => ({ budgetItems: [...state.budgetItems, result.item] }))
+      set(state => ({
+        budgetItems: [...state.budgetItems, result.item],
+        budgetCategories: data.category && !state.budgetCategories[data.category]
+          ? { ...state.budgetCategories, [data.category]: state.budgetCategories[data.category] || 'EUR' }
+          : state.budgetCategories,
+      }))
       return result.item
     } catch (err: unknown) {
       throw new Error(getApiErrorMessage(err, 'Error adding budget item'))
@@ -103,7 +120,7 @@ export const createBudgetSlice = (set: SetState, get: GetState): BudgetSlice => 
     } catch {
       // Reload on failure
       const data = await budgetApi.list(tripId)
-      set({ budgetItems: data.items })
+      set({ budgetItems: data.items, budgetCategories: categoriesToMap(data.categories) })
     }
   },
 
@@ -130,7 +147,43 @@ export const createBudgetSlice = (set: SetState, get: GetState): BudgetSlice => 
       await budgetApi.reorderCategories(tripId, orderedCategories)
     } catch {
       const data = await budgetApi.list(tripId)
-      set({ budgetItems: data.items })
+      set({ budgetItems: data.items, budgetCategories: categoriesToMap(data.categories) })
+    }
+  },
+
+  updateBudgetCategoryCurrency: async (tripId, category, currency) => {
+    set(state => ({
+      budgetCategories: { ...state.budgetCategories, [category]: currency },
+    }))
+    try {
+      await budgetApi.updateCategoryCurrency(tripId, category, currency)
+    } catch {
+      const data = await budgetApi.list(tripId)
+      set({ budgetItems: data.items, budgetCategories: categoriesToMap(data.categories) })
+    }
+  },
+
+  renameBudgetCategory: async (tripId, oldName, newName) => {
+    const trimmed = newName.trim()
+    if (!trimmed || trimmed === oldName) return
+    set(state => {
+      const next = { ...state.budgetCategories }
+      if (next[oldName] !== undefined) {
+        next[trimmed] = next[oldName]
+        delete next[oldName]
+      }
+      return {
+        budgetCategories: next,
+        budgetItems: state.budgetItems.map(item =>
+          item.category === oldName ? { ...item, category: trimmed } : item
+        ),
+      }
+    })
+    try {
+      await budgetApi.renameCategory(tripId, oldName, trimmed)
+    } catch {
+      const data = await budgetApi.list(tripId)
+      set({ budgetItems: data.items, budgetCategories: categoriesToMap(data.categories) })
     }
   },
 })

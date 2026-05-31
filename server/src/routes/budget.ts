@@ -7,6 +7,7 @@ import { db } from '../db/database';
 import {
   verifyTripAccess,
   listBudgetItems,
+  listBudgetCategories,
   createBudgetItem,
   updateBudgetItem,
   deleteBudgetItem,
@@ -16,6 +17,10 @@ import {
   calculateSettlement,
   reorderBudgetItems,
   reorderBudgetCategories,
+  updateBudgetCategoryCurrency,
+  renameBudgetCategory,
+  deleteBudgetCategoryOrder,
+  BUDGET_CATEGORY_CURRENCIES,
 } from '../services/budgetService';
 
 const router = express.Router({ mergeParams: true });
@@ -27,7 +32,64 @@ router.get('/', authenticate, (req: Request, res: Response) => {
   const trip = verifyTripAccess(tripId, authReq.user.id);
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
 
-  res.json({ items: listBudgetItems(tripId) });
+  res.json({ items: listBudgetItems(tripId), categories: listBudgetCategories(tripId) });
+});
+
+router.put('/categories/currency', authenticate, (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const { tripId } = req.params;
+  const { category, currency } = req.body;
+
+  const trip = verifyTripAccess(tripId, authReq.user.id);
+  if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+  if (!checkPermission('budget_edit', authReq.user.role, trip.user_id, authReq.user.id, trip.user_id !== authReq.user.id))
+    return res.status(403).json({ error: 'No permission' });
+
+  if (!category || typeof category !== 'string') return res.status(400).json({ error: 'category is required' });
+  if (!currency || !BUDGET_CATEGORY_CURRENCIES.includes(currency)) {
+    return res.status(400).json({ error: `currency must be one of: ${BUDGET_CATEGORY_CURRENCIES.join(', ')}` });
+  }
+
+  const updated = updateBudgetCategoryCurrency(tripId, category, currency);
+  if (!updated) return res.status(404).json({ error: 'Category not found' });
+
+  res.json({ category: updated });
+  broadcast(tripId, 'budget:category-currency-updated', { category: updated.category, currency: updated.currency }, req.headers['x-socket-id'] as string);
+});
+
+router.put('/categories/rename', authenticate, (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const { tripId } = req.params;
+  const { oldName, newName } = req.body;
+
+  const trip = verifyTripAccess(tripId, authReq.user.id);
+  if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+  if (!checkPermission('budget_edit', authReq.user.role, trip.user_id, authReq.user.id, trip.user_id !== authReq.user.id))
+    return res.status(403).json({ error: 'No permission' });
+
+  if (!oldName || !newName) return res.status(400).json({ error: 'oldName and newName are required' });
+
+  if (!renameBudgetCategory(tripId, oldName, newName))
+    return res.status(404).json({ error: 'Category not found' });
+
+  res.json({ success: true });
+  broadcast(tripId, 'budget:category-renamed', { oldName, newName: newName.trim() }, req.headers['x-socket-id'] as string);
+});
+
+router.delete('/categories/:category', authenticate, (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const { tripId, category } = req.params;
+
+  const trip = verifyTripAccess(tripId, authReq.user.id);
+  if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+  if (!checkPermission('budget_edit', authReq.user.role, trip.user_id, authReq.user.id, trip.user_id !== authReq.user.id))
+    return res.status(403).json({ error: 'No permission' });
+
+  deleteBudgetCategoryOrder(tripId, decodeURIComponent(category));
+  res.json({ success: true });
 });
 
 router.get('/summary/per-person', authenticate, (req: Request, res: Response) => {

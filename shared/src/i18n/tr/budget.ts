@@ -36,5 +36,7 @@ const budget: TranslationStrings = {
   'budget.settlementInfo': 'Bir bütçe kalemindeki üye avatarına tıklayarak yeşil işaretleyin — bu ödedikleri anlamına gelir. Hesaplaşma kimin kime ne kadar borçlu olduğunu gösterir.',
   'budget.netBalances': 'Net Bakiyeler',
   'budget.categoriesLabel': 'kategoriler',
+  'budget.categoryCurrency': 'Para birimi',
+  'budget.mixedCurrencies': 'Karışık',
 };
 export default budget;

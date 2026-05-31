@@ -367,6 +367,25 @@ export function handleRemoteEvent(set: SetState, get: GetState, event: WebSocket
               : i
           ),
         }
+      case 'budget:category-currency-updated':
+        return {
+          budgetCategories: { ...state.budgetCategories, [payload.category as string]: payload.currency as string },
+        }
+      case 'budget:category-renamed': {
+        const oldName = payload.oldName as string
+        const newName = payload.newName as string
+        const next = { ...state.budgetCategories }
+        if (next[oldName] !== undefined) {
+          next[newName] = next[oldName]
+          delete next[oldName]
+        }
+        return {
+          budgetCategories: next,
+          budgetItems: state.budgetItems.map(i =>
+            i.category === oldName ? { ...i, category: newName } : i
+          ),
+        }
+      }
       case 'budget:reordered': {
         if (payload.orderedIds) {
           const orderedIds = payload.orderedIds as number[]
