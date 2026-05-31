@@ -42,5 +42,6 @@ const budget: TranslationStrings = {
   'budget.currencyEUR': 'Euro',
   'budget.currencyUSD': 'Dolar',
   'budget.spendingByCurrency': 'Para Birimine Göre',
+  'budget.allMembers': 'Hepsi',
 };
 export default budget;

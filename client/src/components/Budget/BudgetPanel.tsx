@@ -387,6 +387,7 @@ interface BudgetMemberChipsProps {
 }
 
 function BudgetMemberChips({ members = [], tripMembers = [], onSetMembers, onTogglePaid, compact = true, readOnly = false }: BudgetMemberChipsProps) {
+  const { t } = useTranslation()
   const chipSize = compact ? 20 : 30
   const btnSize = compact ? 18 : 28
   const iconSize = compact ? (members.length > 0 ? 8 : 9) : (members.length > 0 ? 12 : 14)
@@ -415,12 +416,18 @@ function BudgetMemberChips({ members = [], tripMembers = [], onSetMembers, onTog
   }, [showDropdown])
 
   const memberIds = members.map(m => m.user_id)
+  const allMemberIds = tripMembers.map(tm => tm.id)
+  const allSelected = allMemberIds.length > 0 && allMemberIds.every(id => memberIds.includes(id))
 
   const toggleMember = (userId) => {
     const newIds = memberIds.includes(userId)
       ? memberIds.filter(id => id !== userId)
       : [...memberIds, userId]
     onSetMembers(newIds)
+  }
+
+  const selectAllMembers = () => {
+    onSetMembers(allMemberIds)
   }
 
   return (
@@ -447,6 +454,29 @@ function BudgetMemberChips({ members = [], tripMembers = [], onSetMembers, onTog
           background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 10,
           boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 4, minWidth: 150,
         }}>
+          {tripMembers.length > 0 && (
+            <>
+              <button onClick={selectAllMembers} style={{
+                display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px',
+                borderRadius: 6, border: 'none', background: allSelected ? 'var(--bg-hover)' : 'none', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', textAlign: 'left',
+              }}
+                onMouseEnter={e => { if (!allSelected) e.currentTarget.style.background = 'var(--bg-hover)' }}
+                onMouseLeave={e => { if (!allSelected) e.currentTarget.style.background = 'none' }}
+              >
+                <div style={{
+                  width: 18, height: 18, borderRadius: '50%', background: 'var(--bg-tertiary)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  color: 'var(--text-muted)',
+                }}>
+                  <Users size={10} />
+                </div>
+                <span style={{ flex: 1 }}>{t('budget.allMembers')}</span>
+                {allSelected && <Check size={12} color="var(--text-primary)" />}
+              </button>
+              <div style={{ height: 1, background: 'var(--border-primary)', margin: '4px 6px' }} />
+            </>
+          )}
           {tripMembers.map(tm => {
             const isActive = memberIds.includes(tm.id)
             return (
