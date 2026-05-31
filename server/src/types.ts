@@ -122,7 +122,6 @@ export interface BudgetItem {
   category: string;
   name: string;
   total_price: number;
-  currency?: string | null;
   persons?: number | null;
   days?: number | null;
   note?: string | null;
