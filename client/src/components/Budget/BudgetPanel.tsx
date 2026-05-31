@@ -135,6 +135,42 @@ function sumByItemCurrency(items: BudgetItem[], getItemCurrency: (item: BudgetIt
   return map
 }
 
+interface PerPersonTotal {
+  user_id: number
+  username: string
+  avatar_url: string | null
+  total_assigned: number
+}
+
+function computePerPersonTotals(
+  items: BudgetItem[],
+  currency: string,
+  getItemCurrency: (item: BudgetItem) => string,
+): PerPersonTotal[] {
+  const map = new Map<number, PerPersonTotal>()
+  for (const item of items) {
+    if (getItemCurrency(item) !== currency) continue
+    const members = item.members || []
+    if (members.length === 0) continue
+    const share = (item.total_price || 0) / members.length
+    for (const m of members) {
+      const existing = map.get(m.user_id)
+      if (existing) existing.total_assigned += share
+      else {
+        map.set(m.user_id, {
+          user_id: m.user_id,
+          username: m.username,
+          avatar_url: m.avatar_url ?? null,
+          total_assigned: share,
+        })
+      }
+    }
+  }
+  return Array.from(map.values())
+    .filter(p => p.total_assigned > 0.001)
+    .sort((a, b) => b.total_assigned - a.total_assigned)
+}
+
 interface TotalWithCurrencyProps {
   amount: number | null | undefined
   currency: string
@@ -545,8 +581,7 @@ function BudgetMemberChips({ members = [], tripMembers = [], onSetMembers, onTog
 
 // ── Per-Person Inline (inside total card) ────────────────────────────────────
 interface PerPersonInlineProps {
-  tripId: number
-  budgetItems: BudgetItem[]
+  people: PerPersonTotal[]
   currency: string
   locale: string
 }
@@ -589,23 +624,18 @@ function RingAvatar({ userId, username, avatarUrl, size = 34, innerBg = '#17171d
   )
 }
 
-function PerPersonInline({ tripId, budgetItems, currency, locale, grandTotal, theme }: PerPersonInlineProps & { grandTotal: number; theme: ReturnType<typeof widgetTheme> }) {
-  const [data, setData] = useState<any[] | null>(null)
+function PerPersonInline({ people, currency, locale, grandTotal, theme }: PerPersonInlineProps & { grandTotal: number; theme: ReturnType<typeof widgetTheme> }) {
   const fmt = (v: number) => fmtNum(v, locale, currency)
 
-  useEffect(() => {
-    budgetApi.perPersonSummary(tripId).then(d => setData(d.summary)).catch(() => {})
-  }, [tripId, budgetItems])
+  if (!people.length) return null
 
-  if (!data || data.length === 0) return null
-
-  const people = data.map((p: any) => ({ ...p, color: colorForUserId(p.user_id) }))
+  const colored = people.map(p => ({ ...p, color: colorForUserId(p.user_id) }))
 
   return (
     <>
       {grandTotal > 0 && (
         <div style={{ display: 'flex', height: 6, borderRadius: 999, overflow: 'hidden', marginTop: 8, marginBottom: 4, gap: 3 }}>
-          {people.map(p => (
+          {colored.map(p => (
             <div key={p.user_id} style={{
               height: '100%', borderRadius: 999,
               flex: Math.max(p.total_assigned || 0, 0.01),
@@ -616,7 +646,7 @@ function PerPersonInline({ tripId, budgetItems, currency, locale, grandTotal, th
       )}
 
       <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${theme.divider}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {people.map(p => {
+        {colored.map(p => {
           const percent = grandTotal > 0 ? Math.round((p.total_assigned / grandTotal) * 100) : 0
           return (
             <div key={p.user_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0' }}>
@@ -696,6 +726,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const [editingCat, setEditingCat] = useState(null) // { name, value }
   const [settlement, setSettlement] = useState<{ balances: any[]; flows: any[] } | null>(null)
   const [settlementOpen, setSettlementOpen] = useState(false)
+  const [panelCurrency, setPanelCurrency] = useState<string | null>(null)
   const canEdit = can('budget_edit', trip)
 
   const defaultCurrency = useMemo(() => {
@@ -763,6 +794,12 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const primaryCurrency = totalsByCurrency.size === 1
     ? Array.from(totalsByCurrency.keys())[0]
     : defaultCurrency
+  const activePanelCurrency = panelCurrency ?? primaryCurrency
+  const panelGrandTotal = totalsByCurrency.get(activePanelCurrency) || 0
+  const perPersonForPanel = useMemo(
+    () => computePerPersonTotals(budgetItems || [], activePanelCurrency, getItemCurrency),
+    [budgetItems, activePanelCurrency, getItemCurrency],
+  )
 
   const pieSegments = useMemo(() => {
     const map = new Map<string, { name: string; value: number; color: string; currency: string }>()
@@ -1203,21 +1240,33 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
 
             {PANEL_CURRENCIES.map((cur, idx) => {
               const total = totalsByCurrency.get(cur) || 0
-              const maxTotal = Math.max(...PANEL_CURRENCIES.map(c => totalsByCurrency.get(c) || 0))
-              const isPrimary = total > 0 && total === maxTotal
+              const isSelected = cur === activePanelCurrency
               const labelKey = cur === 'TRY' ? 'budget.currencyTRY' : cur === 'EUR' ? 'budget.currencyEUR' : 'budget.currencyUSD'
               const decimals = currencyDecimals(cur)
               const full = Number(total).toLocaleString(locale, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
               const sep = (0.1).toLocaleString(locale).replace(/\d/g, '')
               const [integerPart, decimalPart] = decimals > 0 ? full.split(sep) : [full, '']
               return (
-                <div key={cur} style={{
-                  marginTop: idx > 0 ? 12 : 0,
-                  padding: '12px 14px',
-                  borderRadius: 12,
-                  background: isPrimary && total > 0 ? theme.iconBg : 'transparent',
-                  border: `1px solid ${isPrimary && total > 0 ? theme.iconBorder : theme.divider}`,
-                }}>
+                <button
+                  key={cur}
+                  type="button"
+                  onClick={() => setPanelCurrency(cur)}
+                  style={{
+                    marginTop: idx > 0 ? 12 : 0,
+                    padding: '12px 14px',
+                    borderRadius: 12,
+                    width: '100%',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    background: isSelected ? theme.iconBg : 'transparent',
+                    border: `1px solid ${isSelected ? theme.iconBorder : theme.divider}`,
+                    transition: 'background 0.15s, border-color 0.15s, box-shadow 0.15s',
+                    boxShadow: isSelected ? '0 0 0 1px var(--accent)' : 'none',
+                  }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = theme.rowHover }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                       <span style={{
@@ -1229,17 +1278,23 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                       <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{t(labelKey)}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, letterSpacing: '-0.02em', flexShrink: 0 }}>
-                      <span style={{ fontSize: isPrimary && total > 0 ? 22 : 18, fontWeight: 700, color: total > 0 ? theme.text : theme.faint }}>{integerPart}</span>
-                      {decimalPart && <span style={{ fontSize: isPrimary && total > 0 ? 14 : 12, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
+                      <span style={{ fontSize: isSelected && total > 0 ? 22 : 18, fontWeight: 700, color: total > 0 ? theme.text : theme.faint }}>{integerPart}</span>
+                      {decimalPart && <span style={{ fontSize: isSelected && total > 0 ? 14 : 12, fontWeight: 500, color: theme.sub }}>{sep}{decimalPart}</span>}
                       <span style={{ fontSize: 14, fontWeight: 500, color: theme.sub, marginLeft: 2 }}>{SYMBOLS[cur]}</span>
                     </div>
                   </div>
-                </div>
+                </button>
               )
             })}
 
-            {hasMultipleMembers && (budgetItems || []).some(i => i.members?.length > 0) && (
-              <PerPersonInline tripId={tripId} budgetItems={budgetItems} currency={primaryCurrency} locale={locale} grandTotal={totalsByCurrency.get(primaryCurrency) || 0} theme={theme} />
+            {hasMultipleMembers && perPersonForPanel.length > 0 && (
+              <PerPersonInline
+                people={perPersonForPanel}
+                currency={activePanelCurrency}
+                locale={locale}
+                grandTotal={panelGrandTotal}
+                theme={theme}
+              />
             )}
 
             {/* Settlement dropdown inside the total card */}
