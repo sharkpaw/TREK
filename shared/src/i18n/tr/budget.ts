@@ -38,13 +38,5 @@ const budget: TranslationStrings = {
   'budget.categoriesLabel': 'kategoriler',
   'budget.categoryCurrency': 'Para birimi',
   'budget.mixedCurrencies': 'Karışık',
-  'budget.displayCurrency': 'Gösterim',
-  'budget.currency.try': 'TL (₺)',
-  'budget.currency.eur': 'Euro (€)',
-  'budget.currency.usd': 'Dolar ($)',
-  'budget.currency.short.try': '₺',
-  'budget.currency.short.eur': '€',
-  'budget.currency.short.usd': '$',
-  'budget.table.currency': 'Para',
 };
 export default budget;
