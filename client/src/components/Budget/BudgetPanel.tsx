@@ -201,32 +201,38 @@ function computePerPersonTotals(
     .sort((a, b) => b.total_assigned - a.total_assigned)
 }
 
-function computePerPersonTotalsInTry(
+function uniqueBudgetPeople(
   items: BudgetItem[],
-  getItemCurrency: (item: BudgetItem) => string,
-  rates: TryRates,
-): PerPersonTotal[] {
-  const map = new Map<number, PerPersonTotal>()
+  tripMembers: TripMember[],
+): Array<{ user_id: number; username: string; avatar_url: string | null }> {
+  const map = new Map<number, { user_id: number; username: string; avatar_url: string | null }>()
   for (const item of items) {
-    const members = item.members || []
-    if (members.length === 0) continue
-    const cur = getItemCurrency(item)
-    const share = convertAmountToTry((item.total_price || 0) / members.length, cur, rates)
-    for (const m of members) {
-      const existing = map.get(m.user_id)
-      if (existing) existing.total_assigned += share
-      else {
+    for (const m of item.members || []) {
+      if (!map.has(m.user_id)) {
         map.set(m.user_id, {
           user_id: m.user_id,
           username: m.username,
           avatar_url: m.avatar_url ?? null,
-          total_assigned: share,
         })
       }
     }
   }
-  return Array.from(map.values())
-    .filter(p => p.total_assigned > 0.001)
+  if (map.size > 0) return Array.from(map.values())
+  return tripMembers.map(tm => ({
+    user_id: tm.id,
+    username: tm.username,
+    avatar_url: tm.avatar_url ?? null,
+  }))
+}
+
+function computeEqualPerPersonSplit(
+  total: number,
+  people: Array<{ user_id: number; username: string; avatar_url: string | null }>,
+): PerPersonTotal[] {
+  if (people.length === 0 || total <= 0) return []
+  const share = total / people.length
+  return people
+    .map(p => ({ ...p, total_assigned: share }))
     .sort((a, b) => b.total_assigned - a.total_assigned)
 }
 
@@ -880,7 +886,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     : defaultCurrency
   const activePanelCurrency = panelCurrency ?? primaryCurrency
   const panelGrandTotal = totalsByCurrency.get(activePanelCurrency) || 0
-  const useTryDistribution = needsTryConversion && tryRates != null && panelCurrency !== 'EUR' && panelCurrency !== 'USD'
+  const useTryDistribution = needsTryConversion && tryRates != null
   const tryGrandTotal = useMemo(
     () => (tryRates ? computeGrandTotalTry(totalsByCurrency, tryRates) : 0),
     [totalsByCurrency, tryRates],
@@ -888,10 +894,14 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const distributionCurrency = useTryDistribution ? 'TRY' : activePanelCurrency
   const distributionGrandTotal = useTryDistribution ? tryGrandTotal : panelGrandTotal
   const perPersonForPanel = useMemo(
-    () => useTryDistribution && tryRates
-      ? computePerPersonTotalsInTry(budgetItems || [], getItemCurrency, tryRates)
-      : computePerPersonTotals(budgetItems || [], activePanelCurrency, getItemCurrency),
-    [budgetItems, activePanelCurrency, getItemCurrency, useTryDistribution, tryRates],
+    () => {
+      if (useTryDistribution && tryRates) {
+        const people = uniqueBudgetPeople(budgetItems || [], tripMembers)
+        return computeEqualPerPersonSplit(tryGrandTotal, people)
+      }
+      return computePerPersonTotals(budgetItems || [], activePanelCurrency, getItemCurrency)
+    },
+    [budgetItems, tripMembers, activePanelCurrency, getItemCurrency, useTryDistribution, tryRates, tryGrandTotal],
   )
 
   const pieSegments = useMemo(() => {
