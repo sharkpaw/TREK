@@ -7,7 +7,7 @@ import { useCanDo } from '../../store/permissionsStore'
 import { useTranslation } from '../../i18n'
 import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon } from 'lucide-react'
 import BudgetTryConversion from './BudgetTryConversion'
-import { useTryExchangeRates, convertAmountToTry } from '../../hooks/useTryExchangeRates'
+import { useTryExchangeRates, convertAmountToTry, computeGrandTotalTry, type TryRates } from '../../hooks/useTryExchangeRates'
 
 function useIsDark(): boolean {
   const [dark, setDark] = useState<boolean>(() => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
@@ -183,6 +183,35 @@ function computePerPersonTotals(
     const members = item.members || []
     if (members.length === 0) continue
     const share = (item.total_price || 0) / members.length
+    for (const m of members) {
+      const existing = map.get(m.user_id)
+      if (existing) existing.total_assigned += share
+      else {
+        map.set(m.user_id, {
+          user_id: m.user_id,
+          username: m.username,
+          avatar_url: m.avatar_url ?? null,
+          total_assigned: share,
+        })
+      }
+    }
+  }
+  return Array.from(map.values())
+    .filter(p => p.total_assigned > 0.001)
+    .sort((a, b) => b.total_assigned - a.total_assigned)
+}
+
+function computePerPersonTotalsInTry(
+  items: BudgetItem[],
+  getItemCurrency: (item: BudgetItem) => string,
+  rates: TryRates,
+): PerPersonTotal[] {
+  const map = new Map<number, PerPersonTotal>()
+  for (const item of items) {
+    const members = item.members || []
+    if (members.length === 0) continue
+    const cur = getItemCurrency(item)
+    const share = convertAmountToTry((item.total_price || 0) / members.length, cur, rates)
     for (const m of members) {
       const existing = map.get(m.user_id)
       if (existing) existing.total_assigned += share
@@ -681,10 +710,12 @@ function PerPersonInline({ people, currency, locale, grandTotal, theme }: PerPer
   if (!people.length) return null
 
   const colored = people.map(p => ({ ...p, color: colorForUserId(p.user_id) }))
+  const assignedTotal = colored.reduce((s, p) => s + p.total_assigned, 0)
+  const percentBase = assignedTotal > 0 ? assignedTotal : grandTotal
 
   return (
     <>
-      {grandTotal > 0 && (
+      {percentBase > 0 && (
         <div style={{ display: 'flex', height: 6, borderRadius: 999, overflow: 'hidden', marginTop: 8, marginBottom: 4, gap: 3 }}>
           {colored.map(p => (
             <div key={p.user_id} style={{
@@ -698,7 +729,7 @@ function PerPersonInline({ people, currency, locale, grandTotal, theme }: PerPer
 
       <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${theme.divider}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {colored.map(p => {
-          const percent = grandTotal > 0 ? Math.round((p.total_assigned / grandTotal) * 100) : 0
+          const percent = percentBase > 0 ? Math.round((p.total_assigned / percentBase) * 100) : 0
           return (
             <div key={p.user_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0' }}>
               <RingAvatar userId={p.user_id} username={p.username} avatarUrl={p.avatar_url} size={34} innerBg={theme.centerBg} textColor={theme.text} />
@@ -849,9 +880,18 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     : defaultCurrency
   const activePanelCurrency = panelCurrency ?? primaryCurrency
   const panelGrandTotal = totalsByCurrency.get(activePanelCurrency) || 0
+  const useTryDistribution = needsTryConversion && tryRates != null && panelCurrency !== 'EUR' && panelCurrency !== 'USD'
+  const tryGrandTotal = useMemo(
+    () => (tryRates ? computeGrandTotalTry(totalsByCurrency, tryRates) : 0),
+    [totalsByCurrency, tryRates],
+  )
+  const distributionCurrency = useTryDistribution ? 'TRY' : activePanelCurrency
+  const distributionGrandTotal = useTryDistribution ? tryGrandTotal : panelGrandTotal
   const perPersonForPanel = useMemo(
-    () => computePerPersonTotals(budgetItems || [], activePanelCurrency, getItemCurrency),
-    [budgetItems, activePanelCurrency, getItemCurrency],
+    () => useTryDistribution && tryRates
+      ? computePerPersonTotalsInTry(budgetItems || [], getItemCurrency, tryRates)
+      : computePerPersonTotals(budgetItems || [], activePanelCurrency, getItemCurrency),
+    [budgetItems, activePanelCurrency, getItemCurrency, useTryDistribution, tryRates],
   )
 
   const pieSegments = useMemo(() => {
@@ -1367,9 +1407,9 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
             {hasMultipleMembers && perPersonForPanel.length > 0 && (
               <PerPersonInline
                 people={perPersonForPanel}
-                currency={activePanelCurrency}
+                currency={distributionCurrency}
                 locale={locale}
-                grandTotal={panelGrandTotal}
+                grandTotal={distributionGrandTotal}
                 theme={theme}
               />
             )}

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { TryRates } from '../../hooks/useTryExchangeRates'
-import { convertAmountToTry } from '../../hooks/useTryExchangeRates'
+import { convertAmountToTry, computeGrandTotalTry } from '../../hooks/useTryExchangeRates'
 import { currencyDecimals } from '../../utils/formatters'
 
 const SYMBOLS: Record<string, string> = { TRY: '₺', EUR: '€', USD: '$' }
@@ -51,7 +51,7 @@ export default function BudgetTryConversion({
     if (!rates) return null
     const eurTry = convertAmountToTry(eurAmount, 'EUR', rates)
     const usdTry = convertAmountToTry(usdAmount, 'USD', rates)
-    const grandTotal = tryAmount + eurTry + usdTry
+    const grandTotal = computeGrandTotalTry(totalsByCurrency, rates)
     return {
       eurTry,
       usdTry,

@@ -13,6 +13,18 @@ export function convertAmountToTry(amount: number, currency: string, rates: TryR
   return amount
 }
 
+export function computeGrandTotalTry(
+  totalsByCurrency: Map<string, number>,
+  rates: TryRates,
+): number {
+  const tryAmount = totalsByCurrency.get('TRY') || 0
+  const eurAmount = totalsByCurrency.get('EUR') || 0
+  const usdAmount = totalsByCurrency.get('USD') || 0
+  return tryAmount
+    + convertAmountToTry(eurAmount, 'EUR', rates)
+    + convertAmountToTry(usdAmount, 'USD', rates)
+}
+
 export function useTryExchangeRates(enabled: boolean) {
   const [rates, setRates] = useState<TryRates | null>(null)
   const [meta, setMeta] = useState<{ source: string; date: string } | null>(null)
