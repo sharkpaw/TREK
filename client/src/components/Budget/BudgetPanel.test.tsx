@@ -495,4 +495,35 @@ describe('BudgetPanel', () => {
     const dashes = screen.getAllByText('—');
     expect(dashes.length).toBeGreaterThan(0);
   });
+
+  it('FE-COMP-BUDGET-037: search filters visible budget items', async () => {
+    const user = userEvent.setup();
+    const items = [
+      { ...buildBudgetItem({ trip_id: 1, name: 'Hotel Paris', category: 'Accommodation' }), id: 1, total_price: 100 },
+      { ...buildBudgetItem({ trip_id: 1, name: 'Taxi Rome', category: 'Transport' }), id: 2, total_price: 50 },
+    ];
+    server.use(
+      http.get('/api/trips/1/budget', () => HttpResponse.json({ items }))
+    );
+    render(<BudgetPanel tripId={1} />);
+    await screen.findByText('Hotel Paris');
+    await screen.findByText('Taxi Rome');
+    const searchInput = screen.getByLabelText('budget.searchPlaceholder');
+    await user.type(searchInput, 'Paris');
+    expect(screen.getByText('Hotel Paris')).toBeInTheDocument();
+    expect(screen.queryByText('Taxi Rome')).not.toBeInTheDocument();
+  });
+
+  it('FE-COMP-BUDGET-038: empty filter shows no results message', async () => {
+    const user = userEvent.setup();
+    const item = { ...buildBudgetItem({ trip_id: 1, name: 'Hotel', category: 'Other' }), total_price: 100 };
+    server.use(
+      http.get('/api/trips/1/budget', () => HttpResponse.json({ items: [item] }))
+    );
+    render(<BudgetPanel tripId={1} />);
+    await screen.findByText('Hotel');
+    const searchInput = screen.getByLabelText('budget.searchPlaceholder');
+    await user.type(searchInput, 'xyznomatch');
+    await screen.findByText('budget.noFilterResults');
+  });
 });

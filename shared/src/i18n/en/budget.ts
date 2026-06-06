@@ -54,5 +54,15 @@ const budget: TranslationStrings = {
   'budget.ratesFootnote': 'Source: {source} · Rate date: {date}',
   'budget.loadingRates': 'Loading rates…',
   'budget.pieTryFootnote': 'TL equivalent · {source} · {date}',
+  'budget.searchPlaceholder': 'Search name, note, category or person…',
+  'budget.dateFrom': 'From',
+  'budget.dateTo': 'To',
+  'budget.filterMember': 'Related person',
+  'budget.filterPayer': 'Paid by',
+  'budget.filterAllMembers': 'All people',
+  'budget.filterAllPayers': 'All payers',
+  'budget.clearFilters': 'Clear filters',
+  'budget.noFilterResults': 'No entries match the current filters.',
+  'budget.filterResults': 'Showing {count} of {total} entries',
 };
 export default budget;

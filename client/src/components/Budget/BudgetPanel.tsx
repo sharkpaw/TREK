@@ -5,7 +5,7 @@ import DOM from 'react-dom'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useTranslation } from '../../i18n'
-import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon } from 'lucide-react'
+import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon, Search, X } from 'lucide-react'
 import BudgetTryConversion from './BudgetTryConversion'
 import { useTryExchangeRates, convertAmountToTry, computeGrandTotalTry, type TryRates } from '../../hooks/useTryExchangeRates'
 
@@ -798,6 +798,67 @@ function PieChart({ segments, size = 200, totalLabel }: PieChartProps) {
   )
 }
 
+// ── Budget filters ───────────────────────────────────────────────────────────
+interface BudgetFilterState {
+  search: string
+  dateFrom: string
+  dateTo: string
+  memberId: string
+  payerId: string
+}
+
+function budgetItemSearchText(item: BudgetItem, getItemCurrency: (item: BudgetItem) => string, tripMembers: TripMember[]): string {
+  const memberNames = (item.members || [])
+    .map(m => tripMembers.find(tm => tm.id === m.user_id)?.username)
+    .filter(Boolean)
+  return [
+    item.name,
+    item.note,
+    item.category,
+    getItemCurrency(item),
+    item.total_price != null ? String(item.total_price) : '',
+    ...memberNames,
+  ].filter(Boolean).join(' ').toLowerCase()
+}
+
+function matchesBudgetFilters(
+  item: BudgetItem,
+  filters: BudgetFilterState,
+  getItemCurrency: (item: BudgetItem) => string,
+  tripMembers: TripMember[],
+): boolean {
+  const q = filters.search.trim().toLowerCase()
+  if (q && !budgetItemSearchText(item, getItemCurrency, tripMembers).includes(q)) return false
+
+  if (filters.dateFrom || filters.dateTo) {
+    if (!item.expense_date) return false
+    if (filters.dateFrom && item.expense_date < filters.dateFrom) return false
+    if (filters.dateTo && item.expense_date > filters.dateTo) return false
+  }
+
+  if (filters.memberId) {
+    const memberIds = (item.members || []).map(m => m.user_id)
+    if (!memberIds.includes(Number(filters.memberId))) return false
+  }
+
+  if (filters.payerId) {
+    const payerIds = (item.members || []).filter(m => m.paid).map(m => m.user_id)
+    if (!payerIds.includes(Number(filters.payerId))) return false
+  }
+
+  return true
+}
+
+function groupBudgetByCategory(items: BudgetItem[]): Map<string, BudgetItem[]> {
+  const map = new Map<string, BudgetItem[]>()
+  for (const item of items) {
+    const cat = item.category || 'Other'
+    if (!map.has(cat)) map.set(cat, [])
+    map.get(cat)!.push(item)
+  }
+  return map
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 interface BudgetPanelProps {
   tripId: number
@@ -815,7 +876,40 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const [settlement, setSettlement] = useState<{ balances: any[]; flows: any[] } | null>(null)
   const [settlementOpen, setSettlementOpen] = useState(false)
   const [panelCurrency, setPanelCurrency] = useState<string | null>(null)
+  const [budgetSearch, setBudgetSearch] = useState('')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterMemberId, setFilterMemberId] = useState('')
+  const [filterPayerId, setFilterPayerId] = useState('')
   const canEdit = can('budget_edit', trip)
+
+  const budgetFilters = useMemo<BudgetFilterState>(() => ({
+    search: budgetSearch,
+    dateFrom: filterDateFrom,
+    dateTo: filterDateTo,
+    memberId: filterMemberId,
+    payerId: filterPayerId,
+  }), [budgetSearch, filterDateFrom, filterDateTo, filterMemberId, filterPayerId])
+
+  const hasActiveFilters = !!(budgetSearch.trim() || filterDateFrom || filterDateTo || filterMemberId || filterPayerId)
+
+  const clearBudgetFilters = useCallback(() => {
+    setBudgetSearch('')
+    setFilterDateFrom('')
+    setFilterDateTo('')
+    setFilterMemberId('')
+    setFilterPayerId('')
+  }, [])
+
+  const memberFilterOptions = useMemo(() => [
+    { value: '', label: t('budget.filterAllMembers') },
+    ...tripMembers.map(m => ({ value: String(m.id), label: m.username })),
+  ], [tripMembers, t])
+
+  const payerFilterOptions = useMemo(() => [
+    { value: '', label: t('budget.filterAllPayers') },
+    ...tripMembers.map(m => ({ value: String(m.id), label: m.username })),
+  ], [tripMembers, t])
 
   const defaultCurrency = useMemo(() => {
     const tripCur = (trip?.currency || 'EUR').toUpperCase()
@@ -854,15 +948,14 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
 
   useEffect(() => { if (tripId) loadBudgetItems(tripId) }, [tripId])
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, BudgetItem[]>()
-    for (const item of (budgetItems || [])) {
-      const cat = item.category || 'Other'
-      if (!map.has(cat)) map.set(cat, [])
-      map.get(cat)!.push(item)
-    }
-    return map
-  }, [budgetItems])
+  const filteredBudgetItems = useMemo(() => {
+    const items = budgetItems || []
+    if (!hasActiveFilters) return items
+    return items.filter(item => matchesBudgetFilters(item, budgetFilters, getItemCurrency, tripMembers))
+  }, [budgetItems, budgetFilters, getItemCurrency, tripMembers, hasActiveFilters])
+
+  const groupedAll = useMemo(() => groupBudgetByCategory(budgetItems || []), [budgetItems])
+  const grouped = useMemo(() => groupBudgetByCategory(filteredBudgetItems), [filteredBudgetItems])
 
   const categoryNames = Array.from(grouped.keys())
 
@@ -876,8 +969,8 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     return map.get(cat)!
   }, [])
   const totalsByCurrency = useMemo(
-    () => sumByItemCurrency(budgetItems || [], getItemCurrency),
-    [budgetItems, getItemCurrency],
+    () => sumByItemCurrency(filteredBudgetItems, getItemCurrency),
+    [filteredBudgetItems, getItemCurrency],
   )
   const needsTryConversion = (totalsByCurrency.get('EUR') || 0) > 0 || (totalsByCurrency.get('USD') || 0) > 0
   const { rates: tryRates, meta: tryRatesMeta, loading: tryRatesLoading, error: tryRatesError, refresh: refreshTryRates } = useTryExchangeRates(needsTryConversion)
@@ -896,19 +989,19 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const perPersonForPanel = useMemo(
     () => {
       if (useTryDistribution && tryRates) {
-        const people = uniqueBudgetPeople(budgetItems || [], tripMembers)
+        const people = uniqueBudgetPeople(filteredBudgetItems, tripMembers)
         return computeEqualPerPersonSplit(tryGrandTotal, people)
       }
-      return computePerPersonTotals(budgetItems || [], activePanelCurrency, getItemCurrency)
+      return computePerPersonTotals(filteredBudgetItems, activePanelCurrency, getItemCurrency)
     },
-    [budgetItems, tripMembers, activePanelCurrency, getItemCurrency, useTryDistribution, tryRates, tryGrandTotal],
+    [filteredBudgetItems, tripMembers, activePanelCurrency, getItemCurrency, useTryDistribution, tryRates, tryGrandTotal],
   )
 
   const pieSegments = useMemo(() => {
     if (needsTryConversion && !tryRates && !tryRatesError) return []
     const map = new Map<string, { name: string; value: number; color: string; currency: string }>()
     const useTry = needsTryConversion && tryRates != null
-    for (const item of budgetItems || []) {
+    for (const item of filteredBudgetItems) {
       const cat = item.category || 'Other'
       const cur = getItemCurrency(item)
       const raw = item.total_price || 0
@@ -919,11 +1012,11 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
       else map.set(cat, { name: cat, value, color: categoryColor(cat), currency: displayCur })
     }
     return Array.from(map.values()).filter(s => s.value > 0)
-  }, [budgetItems, getItemCurrency, categoryColor, needsTryConversion, tryRates, tryRatesError])
+  }, [filteredBudgetItems, getItemCurrency, categoryColor, needsTryConversion, tryRates, tryRatesError])
 
   const hasPieData = useMemo(
-    () => (budgetItems || []).some(i => (i.total_price || 0) > 0),
-    [budgetItems],
+    () => filteredBudgetItems.some(i => (i.total_price || 0) > 0),
+    [filteredBudgetItems],
   )
   const showPieChart = pieSegments.length > 0 || (needsTryConversion && hasPieData && (tryRatesLoading || tryRatesError))
 
@@ -931,7 +1024,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const handleUpdateField = async (id, field, value) => { try { await updateBudgetItem(tripId, id, { [field]: value }) } catch {} }
   const handleDeleteItem = async (id) => { try { await deleteBudgetItem(tripId, id) } catch {} }
   const handleDeleteCategory = async (cat) => {
-    const items = grouped.get(cat) || []
+    const items = groupedAll.get(cat) || []
     for (const item of Array.from(items)) await deleteBudgetItem(tripId, item.id)
     try { await budgetApi.deleteCategoryMeta(tripId, cat) } catch {}
     useTripStore.setState(state => {
@@ -942,7 +1035,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   }
   const handleRenameCategory = async (oldName, newName) => {
     if (!newName.trim() || newName.trim() === oldName) return
-    const items = grouped.get(oldName) || []
+    const items = groupedAll.get(oldName) || []
     await renameBudgetCategory(tripId, oldName, newName.trim())
     for (const item of Array.from(items)) await updateBudgetItem(tripId, item.id, { category: newName.trim() })
   }
@@ -1028,7 +1121,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   }
 
   // ── Main Layout ──────────────────────────────────────────────────────────
-  const totalBudget = budgetItems.reduce((s, x) => s + (x.total_price || 0), 0)
+  const totalBudget = filteredBudgetItems.reduce((s, x) => s + (x.total_price || 0), 0)
   return (
     <div>
       <div style={{ padding: '24px 28px 0' }} className="max-md:!px-4 max-md:!pt-4">
@@ -1079,11 +1172,116 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
             </button>
           </div>
         </div>
+
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} strokeWidth={1.8} color="var(--text-faint)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              value={budgetSearch}
+              onChange={e => setBudgetSearch(e.target.value)}
+              placeholder={t('budget.searchPlaceholder')}
+              aria-label={t('budget.searchPlaceholder')}
+              style={{
+                width: '100%', padding: '9px 34px 9px 34px', borderRadius: 10,
+                border: '1px solid var(--border-primary)', background: 'var(--bg-card)', fontSize: 13,
+                color: 'var(--text-primary)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+              }}
+            />
+            {budgetSearch && (
+              <button
+                type="button"
+                onClick={() => setBudgetSearch('')}
+                aria-label={t('budget.clearFilters')}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+              >
+                <X size={14} strokeWidth={2} color="var(--text-faint)" />
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <CustomDatePicker
+              value={filterDateFrom}
+              onChange={setFilterDateFrom}
+              placeholder={t('budget.dateFrom')}
+              compact
+              style={{ minWidth: 130, flex: '1 1 130px' }}
+            />
+            <span style={{ color: 'var(--text-faint)', fontSize: 12, flexShrink: 0 }}>—</span>
+            <CustomDatePicker
+              value={filterDateTo}
+              onChange={setFilterDateTo}
+              placeholder={t('budget.dateTo')}
+              compact
+              style={{ minWidth: 130, flex: '1 1 130px' }}
+            />
+            {tripMembers.length > 0 && (
+              <>
+                <CustomSelect
+                  value={filterMemberId}
+                  onChange={setFilterMemberId}
+                  options={memberFilterOptions}
+                  placeholder={t('budget.filterMember')}
+                  searchable
+                  size="sm"
+                  style={{ minWidth: 140, flex: '1 1 140px' }}
+                />
+                <CustomSelect
+                  value={filterPayerId}
+                  onChange={setFilterPayerId}
+                  options={payerFilterOptions}
+                  placeholder={t('budget.filterPayer')}
+                  searchable
+                  size="sm"
+                  style={{ minWidth: 140, flex: '1 1 140px' }}
+                />
+              </>
+            )}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearBudgetFilters}
+                style={{
+                  appearance: 'none', border: '1px solid var(--border-primary)', borderRadius: 10,
+                  background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer',
+                  fontFamily: 'inherit', fontSize: 12, fontWeight: 500, padding: '7px 12px', flexShrink: 0,
+                }}
+              >
+                {t('budget.clearFilters')}
+              </button>
+            )}
+          </div>
+
+          {hasActiveFilters && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {t('budget.filterResults', { count: filteredBudgetItems.length, total: (budgetItems || []).length })}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 20, padding: '24px 28px 40px', alignItems: 'flex-start', flexWrap: 'wrap' }} className="max-md:!px-4">
         <div style={{ flex: 1, minWidth: 0 }}>
-          {categoryNames.map((cat, ci) => {
+          {hasActiveFilters && filteredBudgetItems.length === 0 ? (
+            <div style={{
+              padding: '48px 24px', textAlign: 'center', borderRadius: 14,
+              border: '1px solid var(--border-primary)', background: 'var(--bg-card)',
+            }}>
+              <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-muted)' }}>{t('budget.noFilterResults')}</p>
+              <button
+                type="button"
+                onClick={clearBudgetFilters}
+                style={{
+                  appearance: 'none', border: 'none', borderRadius: 10, cursor: 'pointer',
+                  background: 'var(--accent)', color: 'var(--accent-text)',
+                  fontFamily: 'inherit', fontSize: 13, fontWeight: 500, padding: '9px 16px',
+                }}
+              >
+                {t('budget.clearFilters')}
+              </button>
+            </div>
+          ) : categoryNames.map((cat, ci) => {
             const items = grouped.get(cat) || []
             const subtotalsByCurrency = sumByItemCurrency(items, getItemCurrency)
             const subtotalLabel = Array.from(subtotalsByCurrency.entries())

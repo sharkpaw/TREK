@@ -51,5 +51,15 @@ const budget: TranslationStrings = {
   'budget.ratesFootnote': 'Kaynak: {source} · Kur tarihi: {date}',
   'budget.loadingRates': 'Kurlar yükleniyor…',
   'budget.pieTryFootnote': 'TL karşılığı · {source} · {date}',
+  'budget.searchPlaceholder': 'İsim, not, kategori veya kişi ara…',
+  'budget.dateFrom': 'Başlangıç',
+  'budget.dateTo': 'Bitiş',
+  'budget.filterMember': 'İlgili kişi',
+  'budget.filterPayer': 'Ödeyen kişi',
+  'budget.filterAllMembers': 'Tüm kişiler',
+  'budget.filterAllPayers': 'Tüm ödeyenler',
+  'budget.clearFilters': 'Filtreleri temizle',
+  'budget.noFilterResults': 'Filtrelere uyan kayıt bulunamadı.',
+  'budget.filterResults': '{count} / {total} kayıt gösteriliyor',
 };
 export default budget;
