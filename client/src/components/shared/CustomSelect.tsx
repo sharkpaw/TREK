@@ -143,7 +143,7 @@ export default function CustomSelect({
           borderRadius: borderless ? 0 : 10,
           border: borderless ? 'none' : '1px solid var(--border-primary)',
           background: borderless ? 'transparent' : 'var(--bg-input)', color: 'var(--text-primary)',
-          fontSize: sm ? 14 : 13, fontWeight: borderless ? 700 : 500, fontFamily: 'inherit',
+          fontSize: sm ? (borderless ? 13 : 14) : 13, fontWeight: 500, fontFamily: 'inherit',
           cursor: disabled ? 'default' : 'pointer', outline: 'none', textAlign: 'left',
           transition: 'border-color 0.15s, background 0.15s', overflow: 'hidden', minWidth: 0,
           opacity: disabled ? 0.5 : 1,
@@ -242,7 +242,7 @@ export default function CustomSelect({
                       padding: menuSymbolOnly ? '10px 12px' : '8px 12px', borderRadius: 6,
                       border: 'none', background: isSelected ? 'var(--bg-hover)' : 'transparent',
                       color: 'var(--text-primary)',
-                      fontSize: menuSymbolOnly ? 18 : 14,
+                      fontSize: menuSymbolOnly ? 18 : 13,
                       fontFamily: 'inherit',
                       cursor: 'pointer', textAlign: menuSymbolOnly ? 'center' : 'left',
                       transition: 'background 0.1s',
@@ -252,7 +252,7 @@ export default function CustomSelect({
                     onMouseLeave={e => e.currentTarget.style.background = isSelected ? 'var(--bg-hover)' : 'transparent'}
                   >
                     {option.icon && <span style={{ display: 'flex', flexShrink: 0 }}>{option.icon}</span>}
-                    <span style={{ flex: menuSymbolOnly ? undefined : 1, minWidth: 0, fontWeight: 700 }}>{optionText}</span>
+                    <span style={{ flex: menuSymbolOnly ? undefined : 1, minWidth: 0, fontWeight: 500 }}>{optionText}</span>
                     {!menuSymbolOnly && option.badge && (
                       <span style={{
                         flexShrink: 0, fontSize: 10, fontWeight: 600, color: 'var(--text-muted)',

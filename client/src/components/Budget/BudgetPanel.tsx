@@ -5,8 +5,10 @@ import DOM from 'react-dom'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useTranslation } from '../../i18n'
-import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon, Search, X } from 'lucide-react'
+import { Plus, Trash2, Calculator, Wallet, Pencil, Users, Check, Info, ChevronDown, ChevronRight, Download, GripVertical, TrendingUp, TrendingDown, PieChart as PieChartIcon } from 'lucide-react'
 import BudgetTryConversion from './BudgetTryConversion'
+import BudgetFiltersBar from './BudgetFiltersBar'
+import { computeBudgetSettlement, computePerPersonShares } from './budgetSettlement'
 import { useTryExchangeRates, convertAmountToTry, computeGrandTotalTry, type TryRates } from '../../hooks/useTryExchangeRates'
 
 function useIsDark(): boolean {
@@ -122,11 +124,6 @@ const SYMBOLS = {
   PEN: 'S/.', ARS: 'AR$',
 }
 const CATEGORY_CURRENCIES = ['EUR', 'USD', 'TRY'] as const
-const TOTAL_CURRENCY_OPTIONS = [
-  { value: 'TRY', label: '₺' },
-  { value: 'EUR', label: '€' },
-  { value: 'USD', label: '$' },
-]
 const PANEL_CURRENCIES = ['TRY', 'EUR', 'USD'] as const
 
 const totalCellShell: CSSProperties = {
@@ -141,16 +138,22 @@ const totalCellShell: CSSProperties = {
 }
 
 function BudgetCurrencySelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const { t } = useTranslation()
+  const options = useMemo(() => [
+    { value: 'TRY', label: '₺', menuLabel: `${t('budget.currencyTRY')} (TRY)` },
+    { value: 'EUR', label: '€', menuLabel: `${t('budget.currencyEUR')} (EUR)` },
+    { value: 'USD', label: '$', menuLabel: `${t('budget.currencyUSD')} (USD)` },
+  ], [t])
+
   return (
     <CustomSelect
       value={value}
       onChange={onChange}
       disabled={disabled}
-      options={TOTAL_CURRENCY_OPTIONS}
+      options={options}
       size="sm"
-      menuWidth={72}
+      menuMinWidth={148}
       menuAlign="right"
-      menuSymbolOnly
       borderless
     />
   )
@@ -172,70 +175,6 @@ interface PerPersonTotal {
   total_assigned: number
 }
 
-function computePerPersonTotals(
-  items: BudgetItem[],
-  currency: string,
-  getItemCurrency: (item: BudgetItem) => string,
-): PerPersonTotal[] {
-  const map = new Map<number, PerPersonTotal>()
-  for (const item of items) {
-    if (getItemCurrency(item) !== currency) continue
-    const members = item.members || []
-    if (members.length === 0) continue
-    const share = (item.total_price || 0) / members.length
-    for (const m of members) {
-      const existing = map.get(m.user_id)
-      if (existing) existing.total_assigned += share
-      else {
-        map.set(m.user_id, {
-          user_id: m.user_id,
-          username: m.username,
-          avatar_url: m.avatar_url ?? null,
-          total_assigned: share,
-        })
-      }
-    }
-  }
-  return Array.from(map.values())
-    .filter(p => p.total_assigned > 0.001)
-    .sort((a, b) => b.total_assigned - a.total_assigned)
-}
-
-function uniqueBudgetPeople(
-  items: BudgetItem[],
-  tripMembers: TripMember[],
-): Array<{ user_id: number; username: string; avatar_url: string | null }> {
-  const map = new Map<number, { user_id: number; username: string; avatar_url: string | null }>()
-  for (const item of items) {
-    for (const m of item.members || []) {
-      if (!map.has(m.user_id)) {
-        map.set(m.user_id, {
-          user_id: m.user_id,
-          username: m.username,
-          avatar_url: m.avatar_url ?? null,
-        })
-      }
-    }
-  }
-  if (map.size > 0) return Array.from(map.values())
-  return tripMembers.map(tm => ({
-    user_id: tm.id,
-    username: tm.username,
-    avatar_url: tm.avatar_url ?? null,
-  }))
-}
-
-function computeEqualPerPersonSplit(
-  total: number,
-  people: Array<{ user_id: number; username: string; avatar_url: string | null }>,
-): PerPersonTotal[] {
-  if (people.length === 0 || total <= 0) return []
-  const share = total / people.length
-  return people
-    .map(p => ({ ...p, total_assigned: share }))
-    .sort((a, b) => b.total_assigned - a.total_assigned)
-}
-
 interface TotalWithCurrencyProps {
   amount: number | null | undefined
   currency: string
@@ -247,11 +186,10 @@ interface TotalWithCurrencyProps {
 }
 
 function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, locale, canEdit, editTooltip }: TotalWithCurrencyProps) {
-  const symbol = SYMBOLS[currency] || currency
   return (
     <div style={totalCellShell} onClick={e => e.stopPropagation()}>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 6,
+        display: 'flex', alignItems: 'center',
         padding: '5px 8px', minWidth: 0,
         borderRight: '1px solid var(--border-primary)',
       }}>
@@ -269,17 +207,8 @@ function TotalWithCurrency({ amount, currency, onSaveAmount, onChangeCurrency, l
           editTooltip={editTooltip}
           readOnly={!canEdit}
         />
-        <span
-          aria-hidden
-          style={{
-            fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)',
-            flexShrink: 0, lineHeight: 1, minWidth: 14, textAlign: 'center',
-          }}
-        >
-          {symbol}
-        </span>
       </div>
-      <div style={{ width: 56, flexShrink: 0 }} title={currency}>
+      <div style={{ width: 48, flexShrink: 0 }} title={currency}>
         <BudgetCurrencySelect value={currency} onChange={onChangeCurrency} disabled={!canEdit} />
       </div>
     </div>
@@ -873,7 +802,6 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const theme = useMemo(() => widgetTheme(isDark), [isDark])
   const [newCategoryName, setNewCategoryName] = useState('')
   const [editingCat, setEditingCat] = useState(null) // { name, value }
-  const [settlement, setSettlement] = useState<{ balances: any[]; flows: any[] } | null>(null)
   const [settlementOpen, setSettlementOpen] = useState(false)
   const [panelCurrency, setPanelCurrency] = useState<string | null>(null)
   const [budgetSearch, setBudgetSearch] = useState('')
@@ -900,16 +828,6 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
     setFilterMemberId('')
     setFilterPayerId('')
   }, [])
-
-  const memberFilterOptions = useMemo(() => [
-    { value: '', label: t('budget.filterAllMembers') },
-    ...tripMembers.map(m => ({ value: String(m.id), label: m.username })),
-  ], [tripMembers, t])
-
-  const payerFilterOptions = useMemo(() => [
-    { value: '', label: t('budget.filterAllPayers') },
-    ...tripMembers.map(m => ({ value: String(m.id), label: m.username })),
-  ], [tripMembers, t])
 
   const defaultCurrency = useMemo(() => {
     const tripCur = (trip?.currency || 'EUR').toUpperCase()
@@ -939,12 +857,6 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   const [dragItem, setDragItem] = useState<number | null>(null)
   const [dragOverItem, setDragOverItem] = useState<number | null>(null)
   const [dragItemCat, setDragItemCat] = useState<string | null>(null)
-
-  // Load settlement data whenever budget items change
-  useEffect(() => {
-    if (!hasMultipleMembers) return
-    budgetApi.settlement(tripId).then(setSettlement).catch(() => {})
-  }, [tripId, budgetItems, hasMultipleMembers])
 
   useEffect(() => { if (tripId) loadBudgetItems(tripId) }, [tripId])
 
@@ -986,15 +898,30 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
   )
   const distributionCurrency = useTryDistribution ? 'TRY' : activePanelCurrency
   const distributionGrandTotal = useTryDistribution ? tryGrandTotal : panelGrandTotal
+
+  const convertItemAmount = useCallback((amount: number, item: BudgetItem) => {
+    const cur = getItemCurrency(item)
+    if (useTryDistribution) {
+      if (!tryRates) return 0
+      return convertAmountToTry(amount, cur, tryRates)
+    }
+    if (cur === activePanelCurrency) return amount
+    return 0
+  }, [getItemCurrency, useTryDistribution, tryRates, activePanelCurrency])
+
   const perPersonForPanel = useMemo(
-    () => {
-      if (useTryDistribution && tryRates) {
-        const people = uniqueBudgetPeople(filteredBudgetItems, tripMembers)
-        return computeEqualPerPersonSplit(tryGrandTotal, people)
-      }
-      return computePerPersonTotals(filteredBudgetItems, activePanelCurrency, getItemCurrency)
-    },
-    [filteredBudgetItems, tripMembers, activePanelCurrency, getItemCurrency, useTryDistribution, tryRates, tryGrandTotal],
+    () => computePerPersonShares(filteredBudgetItems, convertItemAmount, tripMembers),
+    [filteredBudgetItems, convertItemAmount, tripMembers],
+  )
+
+  const settlement = useMemo(
+    () => computeBudgetSettlement(budgetItems || [], tripMembers, convertItemAmount),
+    [budgetItems, tripMembers, convertItemAmount],
+  )
+
+  const hasSettlementData = useMemo(
+    () => (budgetItems || []).some(i => (i.members || []).some(m => m.paid)),
+    [budgetItems],
   )
 
   const pieSegments = useMemo(() => {
@@ -1173,92 +1100,24 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
           </div>
         </div>
 
-        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} strokeWidth={1.8} color="var(--text-faint)" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            <input
-              type="text"
-              value={budgetSearch}
-              onChange={e => setBudgetSearch(e.target.value)}
-              placeholder={t('budget.searchPlaceholder')}
-              aria-label={t('budget.searchPlaceholder')}
-              style={{
-                width: '100%', padding: '9px 34px 9px 34px', borderRadius: 10,
-                border: '1px solid var(--border-primary)', background: 'var(--bg-card)', fontSize: 13,
-                color: 'var(--text-primary)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
-              }}
-            />
-            {budgetSearch && (
-              <button
-                type="button"
-                onClick={() => setBudgetSearch('')}
-                aria-label={t('budget.clearFilters')}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
-              >
-                <X size={14} strokeWidth={2} color="var(--text-faint)" />
-              </button>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <CustomDatePicker
-              value={filterDateFrom}
-              onChange={setFilterDateFrom}
-              placeholder={t('budget.dateFrom')}
-              compact
-              style={{ minWidth: 130, flex: '1 1 130px' }}
-            />
-            <span style={{ color: 'var(--text-faint)', fontSize: 12, flexShrink: 0 }}>—</span>
-            <CustomDatePicker
-              value={filterDateTo}
-              onChange={setFilterDateTo}
-              placeholder={t('budget.dateTo')}
-              compact
-              style={{ minWidth: 130, flex: '1 1 130px' }}
-            />
-            {tripMembers.length > 0 && (
-              <>
-                <CustomSelect
-                  value={filterMemberId}
-                  onChange={setFilterMemberId}
-                  options={memberFilterOptions}
-                  placeholder={t('budget.filterMember')}
-                  searchable
-                  size="sm"
-                  style={{ minWidth: 140, flex: '1 1 140px' }}
-                />
-                <CustomSelect
-                  value={filterPayerId}
-                  onChange={setFilterPayerId}
-                  options={payerFilterOptions}
-                  placeholder={t('budget.filterPayer')}
-                  searchable
-                  size="sm"
-                  style={{ minWidth: 140, flex: '1 1 140px' }}
-                />
-              </>
-            )}
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearBudgetFilters}
-                style={{
-                  appearance: 'none', border: '1px solid var(--border-primary)', borderRadius: 10,
-                  background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer',
-                  fontFamily: 'inherit', fontSize: 12, fontWeight: 500, padding: '7px 12px', flexShrink: 0,
-                }}
-              >
-                {t('budget.clearFilters')}
-              </button>
-            )}
-          </div>
-
-          {hasActiveFilters && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {t('budget.filterResults', { count: filteredBudgetItems.length, total: (budgetItems || []).length })}
-            </div>
-          )}
-        </div>
+        <BudgetFiltersBar
+          t={t}
+          search={budgetSearch}
+          onSearchChange={setBudgetSearch}
+          dateFrom={filterDateFrom}
+          dateTo={filterDateTo}
+          onDateFromChange={setFilterDateFrom}
+          onDateToChange={setFilterDateTo}
+          memberId={filterMemberId}
+          payerId={filterPayerId}
+          onMemberIdChange={setFilterMemberId}
+          onPayerIdChange={setFilterPayerId}
+          tripMembers={tripMembers}
+          hasActiveFilters={hasActiveFilters}
+          onClearFilters={clearBudgetFilters}
+          filteredCount={filteredBudgetItems.length}
+          totalCount={(budgetItems || []).length}
+        />
       </div>
 
       <div style={{ display: 'flex', gap: 20, padding: '24px 28px 40px', alignItems: 'flex-start', flexWrap: 'wrap' }} className="max-md:!px-4">
@@ -1622,8 +1481,8 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
               />
             )}
 
-            {/* Settlement dropdown inside the total card */}
-            {hasMultipleMembers && settlement && settlement.flows.length > 0 && (
+            {/* Settlement — bottom of sidebar, collapsed by default */}
+            {hasMultipleMembers && (
               <div style={{ marginTop: 16, borderTop: `1px solid ${theme.divider}`, paddingTop: 12 }}>
                 <button onClick={() => setSettlementOpen(v => !v)} style={{
                   display: 'flex', alignItems: 'center', gap: 6, width: '100%',
@@ -1632,6 +1491,14 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                 }}>
                   {settlementOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   {t('budget.settlement')}
+                  {settlement.flows.length > 0 && (
+                    <span style={{
+                      marginLeft: 4, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
+                      background: theme.iconBg, color: theme.iconColor,
+                    }}>
+                      {settlement.flows.length}
+                    </span>
+                  )}
                   <span style={{ position: 'relative', display: 'inline-flex', marginLeft: 2 }}>
                     <span style={{ display: 'flex', cursor: 'help' }}
                       onMouseEnter={e => { const tip = e.currentTarget.nextElementSibling as HTMLElement; if (tip) tip.style.display = 'block' }}
@@ -1654,31 +1521,47 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
 
                 {settlementOpen && (
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {settlement.flows.map((flow, i) => (
-                      <div key={i} style={{
-                        display: 'flex', alignItems: 'center', gap: 14,
-                        padding: '12px 14px', borderRadius: 14,
-                        background: theme.flowBg,
-                        border: `1px solid ${theme.flowBorder}`,
-                        transition: 'all 0.2s',
-                      }}
-                        onMouseEnter={e => { e.currentTarget.style.background = theme.flowHoverBg; e.currentTarget.style.borderColor = theme.flowHoverBorder }}
-                        onMouseLeave={e => { e.currentTarget.style.background = theme.flowBg; e.currentTarget.style.borderColor = theme.flowBorder }}
-                      >
-                        <RingAvatar userId={flow.from.user_id} username={flow.from.username} avatarUrl={flow.from.avatar_url} size={32} innerBg={theme.centerBg} textColor={theme.text} />
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', letterSpacing: '-0.01em' }}>
-                            {fmt(flow.amount, primaryCurrency)}
-                          </span>
-                          <div style={{ width: '100%', height: 2, borderRadius: 2, background: 'linear-gradient(90deg, rgba(239,68,68,0.1), rgba(239,68,68,0.55), rgba(239,68,68,0.3))', position: 'relative' }}>
-                            <div style={{ position: 'absolute', right: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderLeft: '6px solid rgba(239,68,68,0.55)', borderTop: '4px solid transparent', borderBottom: '4px solid transparent' }} />
+                    {!hasSettlementData ? (
+                      <p style={{ margin: 0, fontSize: 12, color: theme.faint, lineHeight: 1.5 }}>
+                        {t('budget.settlementNoPayers')}
+                      </p>
+                    ) : settlement.flows.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: 12, color: theme.faint, lineHeight: 1.5 }}>
+                        {t('budget.settlementBalanced')}
+                      </p>
+                    ) : (
+                      settlement.flows.map((flow, i) => (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: 14,
+                          padding: '12px 14px', borderRadius: 14,
+                          background: theme.flowBg,
+                          border: `1px solid ${theme.flowBorder}`,
+                          transition: 'all 0.2s',
+                        }}
+                          onMouseEnter={e => { e.currentTarget.style.background = theme.flowHoverBg; e.currentTarget.style.borderColor = theme.flowHoverBorder }}
+                          onMouseLeave={e => { e.currentTarget.style.background = theme.flowBg; e.currentTarget.style.borderColor = theme.flowBorder }}
+                        >
+                          <RingAvatar userId={flow.from.user_id} username={flow.from.username} avatarUrl={flow.from.avatar_url} size={32} innerBg={theme.centerBg} textColor={theme.text} />
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: theme.text, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
+                              {flow.from.username}
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', letterSpacing: '-0.01em' }}>
+                              {fmt(flow.amount, distributionCurrency)}
+                            </span>
+                            <div style={{ width: '100%', height: 2, borderRadius: 2, background: 'linear-gradient(90deg, rgba(239,68,68,0.1), rgba(239,68,68,0.55), rgba(239,68,68,0.3))', position: 'relative' }}>
+                              <div style={{ position: 'absolute', right: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderLeft: '6px solid rgba(239,68,68,0.55)', borderTop: '4px solid transparent', borderBottom: '4px solid transparent' }} />
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: theme.text, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
+                              {flow.to.username}
+                            </span>
                           </div>
+                          <RingAvatar userId={flow.to.user_id} username={flow.to.username} avatarUrl={flow.to.avatar_url} size={32} innerBg={theme.centerBg} textColor={theme.text} />
                         </div>
-                        <RingAvatar userId={flow.to.user_id} username={flow.to.username} avatarUrl={flow.to.avatar_url} size={32} innerBg={theme.centerBg} textColor={theme.text} />
-                      </div>
-                    ))}
+                      ))
+                    )}
 
-                    {settlement.balances.filter(b => Math.abs(b.balance) > 0.01).length > 0 && (
+                    {hasSettlementData && settlement.balances.filter(b => Math.abs(b.balance) > 0.01).length > 0 && (
                       <div style={{ marginTop: 8, borderTop: `1px solid ${theme.divider}`, paddingTop: 12 }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: theme.faint, textTransform: 'uppercase', letterSpacing: '0.11em', marginBottom: 10 }}>
                           {t('budget.netBalances')}
@@ -1701,7 +1584,7 @@ export default function BudgetPanel({ tripId, tripMembers = [] }: BudgetPanelPro
                                   color: positive ? '#10b981' : '#ef4444',
                                 }}>
                                   <Trend size={11} strokeWidth={3} />
-                                  {positive ? '+' : ''}{fmt(b.balance, primaryCurrency)}
+                                  {positive ? '+' : ''}{fmt(b.balance, distributionCurrency)}
                                 </span>
                               </div>
                             )

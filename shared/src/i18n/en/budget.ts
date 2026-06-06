@@ -64,5 +64,8 @@ const budget: TranslationStrings = {
   'budget.clearFilters': 'Clear filters',
   'budget.noFilterResults': 'No entries match the current filters.',
   'budget.filterResults': 'Showing {count} of {total} entries',
+  'budget.selectPerson': 'Select',
+  'budget.settlementNoPayers': 'No payments marked. Mark the payer with a green avatar on each item.',
+  'budget.settlementBalanced': 'All settled — no payments needed.',
 };
 export default budget;

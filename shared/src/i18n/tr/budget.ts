@@ -61,5 +61,8 @@ const budget: TranslationStrings = {
   'budget.clearFilters': 'Filtreleri temizle',
   'budget.noFilterResults': 'Filtrelere uyan kayıt bulunamadı.',
   'budget.filterResults': '{count} / {total} kayıt gösteriliyor',
+  'budget.selectPerson': 'Seç',
+  'budget.settlementNoPayers': 'Ödeme işaretlenmemiş. Kalemlerde ödeyen kişiyi yeşil avatar ile işaretleyin.',
+  'budget.settlementBalanced': 'Herkes eşit — ek ödeme gerekmiyor.',
 };
 export default budget;

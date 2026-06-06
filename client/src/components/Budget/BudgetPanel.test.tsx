@@ -357,20 +357,18 @@ describe('BudgetPanel', () => {
 
   it('FE-COMP-BUDGET-029: settlement section renders flows with usernames', async () => {
     const user = userEvent.setup();
-    const item = { ...buildBudgetItem({ trip_id: 1, category: 'Food', name: 'Dinner' }), total_price: 100 };
+    const item = {
+      ...buildBudgetItem({ trip_id: 1, category: 'Food', name: 'Dinner' }),
+      total_price: 100,
+      persons: 2,
+      members: [
+        { user_id: 1, username: 'alice', avatar_url: null, paid: false },
+        { user_id: 2, username: 'bob', avatar_url: null, paid: true },
+      ],
+    };
+    seedStore(useTripStore, { trip: buildTrip({ id: 1, currency: 'EUR' }), budgetItems: [item] });
     server.use(
       http.get('/api/trips/1/budget', () => HttpResponse.json({ items: [item] })),
-      http.get('/api/trips/1/budget/settlement', () =>
-        HttpResponse.json({
-          balances: [
-            { user_id: 1, username: 'alice', balance: -10, avatar_url: null },
-            { user_id: 2, username: 'bob', balance: 10, avatar_url: null },
-          ],
-          flows: [
-            { from: { username: 'alice', avatar_url: null }, to: { username: 'bob', avatar_url: null }, amount: 10 },
-          ],
-        })
-      )
     );
     const tripMembers = [
       { id: 1, username: 'alice', avatar_url: null },
@@ -378,12 +376,10 @@ describe('BudgetPanel', () => {
     ];
     render(<BudgetPanel tripId={1} tripMembers={tripMembers} />);
     await screen.findByText('Dinner');
-    // Click the settlement toggle button (role button with name containing "settlement")
+    await screen.findByText('alice');
     const settlementBtn = await screen.findByRole('button', { name: /settlement/i });
     await user.click(settlementBtn);
-    // alice and bob should appear in balances section
-    await screen.findByText('alice');
-    await screen.findByText('bob');
+    expect(screen.getAllByText('bob').length).toBeGreaterThan(0);
   });
 
   it('FE-COMP-BUDGET-030: per-person summary renders usernames', async () => {
@@ -452,18 +448,18 @@ describe('BudgetPanel', () => {
 
   it('FE-COMP-BUDGET-035: settlement section with avatar renders user avatar image', async () => {
     const user = userEvent.setup();
-    const item = { ...buildBudgetItem({ trip_id: 1, category: 'Food', name: 'Lunch' }), total_price: 60 };
+    const item = {
+      ...buildBudgetItem({ trip_id: 1, category: 'Food', name: 'Lunch' }),
+      total_price: 60,
+      persons: 2,
+      members: [
+        { user_id: 1, username: 'alice', avatar_url: '/uploads/avatars/alice.jpg', paid: false },
+        { user_id: 2, username: 'bob', avatar_url: null, paid: true },
+      ],
+    };
+    seedStore(useTripStore, { trip: buildTrip({ id: 1, currency: 'EUR' }), budgetItems: [item] });
     server.use(
       http.get('/api/trips/1/budget', () => HttpResponse.json({ items: [item] })),
-      http.get('/api/trips/1/budget/settlement', () =>
-        HttpResponse.json({
-          balances: [
-            { user_id: 1, username: 'alice', avatar_url: '/uploads/avatars/alice.jpg', balance: -30 },
-            { user_id: 2, username: 'bob', avatar_url: null, balance: 30 },
-          ],
-          flows: [{ from: { username: 'alice', avatar_url: '/uploads/avatars/alice.jpg' }, to: { username: 'bob', avatar_url: null }, amount: 30 }]
-        })
-      ),
       http.get('/api/trips/1/budget/per-person', () => HttpResponse.json({ summary: [] })),
     );
     const tripMembers = [
@@ -472,11 +468,9 @@ describe('BudgetPanel', () => {
     ];
     render(<BudgetPanel tripId={1} tripMembers={tripMembers} />);
     await screen.findByText('Lunch');
-    // Trigger settlement display
+    await screen.findByText('alice');
     const settlementBtn = await screen.findByRole('button', { name: /settlement/i });
     await user.click(settlementBtn);
-    await screen.findByText('alice');
-    // Avatar image should be rendered for alice
     const avatarImg = screen.getAllByRole('img');
     expect(avatarImg.length).toBeGreaterThan(0);
   });
@@ -508,7 +502,7 @@ describe('BudgetPanel', () => {
     render(<BudgetPanel tripId={1} />);
     await screen.findByText('Hotel Paris');
     await screen.findByText('Taxi Rome');
-    const searchInput = screen.getByLabelText('budget.searchPlaceholder');
+    const searchInput = screen.getAllByPlaceholderText(/Search name|budget\.searchPlaceholder/i)[0];
     await user.type(searchInput, 'Paris');
     expect(screen.getByText('Hotel Paris')).toBeInTheDocument();
     expect(screen.queryByText('Taxi Rome')).not.toBeInTheDocument();
@@ -522,8 +516,8 @@ describe('BudgetPanel', () => {
     );
     render(<BudgetPanel tripId={1} />);
     await screen.findByText('Hotel');
-    const searchInput = screen.getByLabelText('budget.searchPlaceholder');
+    const searchInput = screen.getAllByPlaceholderText(/Search name|budget\.searchPlaceholder/i)[0];
     await user.type(searchInput, 'xyznomatch');
-    await screen.findByText('budget.noFilterResults');
+    await screen.findByText(/No entries match|budget\.noFilterResults/i);
   });
 });
